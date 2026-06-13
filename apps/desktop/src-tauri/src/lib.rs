@@ -19,6 +19,7 @@ pub fn run() {
 
             let conn = db::open(&db_path).expect("Failed to open database");
             db::migrate(&conn).expect("Failed to run database migrations");
+            db::seed_sources(&conn).expect("Failed to seed sources");
 
             app.manage(DbState(Mutex::new(conn)));
             Ok(())
@@ -31,6 +32,12 @@ pub fn run() {
             commands::directory::toggle_directory,
             commands::directory::set_default_directory,
             commands::directory::delete_directory,
+            commands::source::list_sources,
+            commands::source::toggle_source,
+            commands::source::list_skills,
+            commands::source::refresh_source,
+            commands::source::refresh_all_sources,
+            commands::source::get_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

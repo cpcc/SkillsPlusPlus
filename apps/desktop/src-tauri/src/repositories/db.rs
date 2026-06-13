@@ -12,6 +12,23 @@ pub fn migrate(conn: &Connection) -> SqliteResult<()> {
     Ok(())
 }
 
+pub fn seed_sources(conn: &Connection) -> SqliteResult<()> {
+    let sources = &[
+        ("skills_sh",  "skills.sh",    "https://skills.sh"),
+        ("lobehub",    "LobeHub",      "https://lobehub.com/skills"),
+        ("skillhub",   "SkillHub.cn",  "https://skillhub.cn"),
+        ("clawhub",    "ClawHub.ai",   "https://clawhub.ai/skills"),
+        ("skillsmp",   "SkillsMP",     "https://skillsmp.com"),
+    ];
+    for (id, name, url) in sources {
+        conn.execute(
+            "INSERT OR IGNORE INTO skill_sources (id, name, base_url, enabled) VALUES (?1, ?2, ?3, 1)",
+            rusqlite::params![id, name, url],
+        )?;
+    }
+    Ok(())
+}
+
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS skill_sources (
     id          TEXT PRIMARY KEY,
