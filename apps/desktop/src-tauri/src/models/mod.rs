@@ -29,3 +29,26 @@ pub struct ScanResult {
     pub writable: bool,
     pub skill_count: i64,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SkillItem {
+    pub id: String,
+    pub name: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub source_id: String,
+    pub repo_url: Option<String>,
+    pub detail_url: String,
+    pub updated_at: Option<String>,
+    pub compatible_tools: Vec<String>,
+    pub stars: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SourceRow {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub enabled: bool,
+}
