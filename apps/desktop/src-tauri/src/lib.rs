@@ -38,6 +38,13 @@ pub fn run() {
             commands::source::refresh_source,
             commands::source::refresh_all_sources,
             commands::source::get_skill,
+            commands::install::preview_install,
+            commands::install::install_skill,
+            commands::install::reinstall_skill,
+            commands::install::uninstall_skill,
+            commands::install::list_installed_skills,
+            commands::install::list_install_tasks,
+            commands::install::check_git_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

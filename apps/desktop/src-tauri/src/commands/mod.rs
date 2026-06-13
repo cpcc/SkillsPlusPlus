@@ -1,6 +1,8 @@
 pub mod app;
 pub mod directory;
+pub mod install;
 pub mod source;
 pub use app::*;
 pub use directory::*;
+pub use install::*;
 pub use source::*;
