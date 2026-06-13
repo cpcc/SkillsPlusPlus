@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState, useEffect } from "react";
 import { X, AlertTriangle, CheckCircle, Loader2 } from "lucide-react";
 import type { AiToolDirectory, InstallPreview } from "@skills-pp/shared";
+import { ipc } from "../../lib/ipc";
 
 interface Props {
   open: boolean;
@@ -45,12 +46,10 @@ export function InstallDialog({
   useEffect(() => {
     if (!selectedDirId || !repoUrl) return;
     setLoadingPreview(true);
-    import("../../lib/ipc").then(({ ipc }) =>
-      ipc.previewInstall(skillName, repoUrl, selectedDirId)
-        .then((p: InstallPreview) => { setPreview(p); setOverwrite(false); })
-        .catch(() => setPreview(null))
-        .finally(() => setLoadingPreview(false))
-    );
+    ipc.previewInstall(skillName, repoUrl, selectedDirId)
+      .then((p: InstallPreview) => { setPreview(p); setOverwrite(false); })
+      .catch(() => setPreview(null))
+      .finally(() => setLoadingPreview(false));
   }, [selectedDirId, skillName, repoUrl]);
 
   function handleSubmit(e: React.FormEvent) {

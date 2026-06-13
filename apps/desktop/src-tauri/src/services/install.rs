@@ -351,3 +351,119 @@ pub fn _now_ts() -> String {
         .as_secs();
     format!("[{secs}]")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn target_path_sanitizes_name() {
+        let p = target_path("/home/user/.cursor/rules", "my-skill_v1.0");
+        assert_eq!(p, PathBuf::from("/home/user/.cursor/rules/my-skill_v1.0"));
+    }
+
+    #[test]
+    fn target_path_replaces_special_chars() {
+        let p = target_path("/tmp", "skill@name#with$special");
+        let name = p.file_name().unwrap().to_str().unwrap();
+        assert!(!name.contains('@'));
+        assert!(!name.contains('#'));
+        assert!(!name.contains('$'));
+    }
+
+    #[test]
+    fn build_preview_no_conflict() {
+        let preview = build_preview("test-skill", "https://github.com/x/y", "/nonexistent/path");
+        assert_eq!(preview.skill_name, "test-skill");
+        assert_eq!(preview.repo_url, "https://github.com/x/y");
+        assert!(preview.conflict.is_none());
+    }
+
+    #[test]
+    fn build_preview_detects_conflict() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_conflict");
+        let _ = fs::create_dir_all(&tmp);
+        let skill_dir = tmp.join("my-skill");
+        let _ = fs::create_dir_all(&skill_dir);
+
+        let preview = build_preview(
+            "my-skill",
+            "https://github.com/x/y",
+            &tmp.to_string_lossy(),
+        );
+        assert!(preview.conflict.is_some());
+        let conflict = preview.conflict.unwrap();
+        assert_eq!(conflict.kind, "existing_dir");
+
+        // cleanup
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn compute_status_missing_when_no_dir() {
+        assert_eq!(compute_skill_status("test", ""), "missing");
+        assert_eq!(compute_skill_status("test", "/nonexistent/path/12345"), "missing");
+    }
+
+    #[test]
+    fn compute_status_ok_when_dir_exists() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_status_ok");
+        let _ = fs::create_dir_all(&tmp);
+        let skill_dir = tmp.join("my-skill");
+        let _ = fs::create_dir_all(&skill_dir);
+        // Create a file so it's non-empty
+        let _ = fs::write(skill_dir.join("README.md"), "# test");
+
+        assert_eq!(compute_skill_status("my-skill", &tmp.to_string_lossy()), "ok");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn compute_status_changed_when_empty_dir() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_status_changed");
+        let _ = fs::create_dir_all(&tmp);
+        let skill_dir = tmp.join("empty-skill");
+        let _ = fs::create_dir_all(&skill_dir);
+
+        assert_eq!(compute_skill_status("empty-skill", &tmp.to_string_lossy()), "changed");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn verify_install_checks_nonempty_dir() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_verify");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(tmp.join("file.txt"), "content");
+
+        assert!(verify_install(&tmp));
+
+        // Empty dir fails
+        let empty = std::env::temp_dir().join("skills_pp_test_verify_empty");
+        let _ = fs::create_dir_all(&empty);
+        assert!(!verify_install(&empty));
+
+        // Nonexistent fails
+        assert!(!verify_install(Path::new("/nonexistent/path/12345")));
+
+        let _ = fs::remove_dir_all(&tmp);
+        let _ = fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn remove_skill_dir_cleans_up() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_remove");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(tmp.join("file.txt"), "content");
+
+        assert!(remove_skill_dir(&tmp).is_ok());
+        assert!(!tmp.exists());
+    }
+
+    #[test]
+    fn remove_skill_dir_noop_when_missing() {
+        assert!(remove_skill_dir(Path::new("/nonexistent/path/12345")).is_ok());
+    }
+}

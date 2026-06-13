@@ -12,7 +12,7 @@ import {
   ArrowUpCircle,
   ExternalLink,
 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   useInstalledSkills,
   useInstallTasks,
@@ -88,7 +88,7 @@ export default function InstalledPage() {
     const skillPath = skill.directoryPath
       ? `${skill.directoryPath}/${skill.name}`
       : skill.directoryId;
-    openUrl(`file://${skillPath}`);
+    openPath(skillPath);
   }
 
   // Recent tasks (latest 5)

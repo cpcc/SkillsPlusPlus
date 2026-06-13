@@ -183,3 +183,70 @@ pub fn update_scan_result(conn: &Connection, result: &ScanResult) -> SqliteResul
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn expand_path_returns_some_for_relative() {
+        let result = expand_path(".cursor/rules");
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert!(path.to_string_lossy().contains(".cursor"));
+    }
+
+    #[test]
+    fn count_skills_returns_zero_for_nonexistent() {
+        assert_eq!(count_skills(Path::new("/nonexistent/path/12345")), 0);
+    }
+
+    #[test]
+    fn count_skills_counts_dirs_and_md_files() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_count");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::create_dir(tmp.join("skill-a"));
+        let _ = fs::create_dir(tmp.join("skill-b"));
+        let _ = fs::write(tmp.join("standalone.md"), "# skill");
+        let _ = fs::write(tmp.join("ignore.txt"), "not a skill");
+
+        assert_eq!(count_skills(&tmp), 3); // 2 dirs + 1 .md
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn is_writable_true_for_temp_dir() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_writable");
+        let _ = fs::create_dir_all(&tmp);
+        assert!(is_writable(&tmp));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn is_writable_false_for_nonexistent() {
+        assert!(!is_writable(Path::new("/nonexistent/path/12345")));
+    }
+
+    #[test]
+    fn scan_directory_detects_existing() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_scan");
+        let _ = fs::create_dir_all(&tmp);
+
+        let result = scan_directory("test-0", "TestTool", &tmp.to_string_lossy());
+        assert!(result.exists);
+        assert!(result.writable);
+        assert_eq!(result.tool_name, "TestTool");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn scan_directory_marks_nonexistent() {
+        let result = scan_directory("test-0", "TestTool", "/nonexistent/path/12345");
+        assert!(!result.exists);
+        assert!(!result.writable);
+        assert_eq!(result.skill_count, 0);
+    }
+}

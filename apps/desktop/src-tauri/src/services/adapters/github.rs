@@ -115,3 +115,36 @@ impl SourceAdapter for GithubAdapter {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_tools_detects_claude() {
+        let tools = infer_tools(&["claude-skill".to_string(), "coding".to_string()]);
+        assert!(tools.contains(&"Claude".to_string()));
+    }
+
+    #[test]
+    fn infer_tools_detects_multiple() {
+        let tools = infer_tools(&[
+            "claude-skill".to_string(),
+            "copilot-skill".to_string(),
+        ]);
+        assert!(tools.contains(&"Claude".to_string()));
+        assert!(tools.contains(&"GitHub Copilot".to_string()));
+    }
+
+    #[test]
+    fn infer_tools_defaults_to_generic() {
+        let tools = infer_tools(&["coding".to_string(), "utility".to_string()]);
+        assert_eq!(tools, vec!["通用".to_string()]);
+    }
+
+    #[test]
+    fn infer_tools_detects_gemini() {
+        let tools = infer_tools(&["gemini-skill".to_string()]);
+        assert!(tools.contains(&"Gemini CLI".to_string()));
+    }
+}
