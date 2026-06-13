@@ -1,16 +1,15 @@
 use crate::commands::app::DbState;
 use crate::models::{SkillItem, SourceRow};
 use crate::services::source_registry::SourceRegistry;
-use rusqlite::params;
+use rusqlite::{params, Connection};
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 const CACHE_TTL_MINUTES: i64 = 30;
 
 // ─── Source management ─────────────────────────────────────────────────────
 
-#[tauri::command]
-pub fn list_sources(db: State<DbState>) -> Result<Vec<SourceRow>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+pub fn list_sources_inner(conn: &Connection) -> Result<Vec<SourceRow>, String> {
     let mut stmt = conn
         .prepare("SELECT id, name, base_url, enabled FROM skill_sources ORDER BY name")
         .map_err(|e| e.to_string())?;
@@ -28,8 +27,12 @@ pub fn list_sources(db: State<DbState>) -> Result<Vec<SourceRow>, String> {
 }
 
 #[tauri::command]
-pub fn toggle_source(db: State<DbState>, id: String, enabled: bool) -> Result<(), String> {
+pub fn list_sources(db: State<DbState>) -> Result<Vec<SourceRow>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
+    list_sources_inner(&conn)
+}
+
+pub fn toggle_source_inner(conn: &Connection, id: String, enabled: bool) -> Result<(), String> {
     conn.execute(
         "UPDATE skill_sources SET enabled = ?1 WHERE id = ?2",
         params![enabled as i64, id],
@@ -38,9 +41,15 @@ pub fn toggle_source(db: State<DbState>, id: String, enabled: bool) -> Result<()
     Ok(())
 }
 
+#[tauri::command]
+pub fn toggle_source(db: State<DbState>, id: String, enabled: bool) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    toggle_source_inner(&conn, id, enabled)
+}
+
 // ─── Cache helpers ─────────────────────────────────────────────────────────
 
-fn store_skills(conn: &rusqlite::Connection, source_id: &str, items: &[SkillItem]) -> Result<(), String> {
+pub fn store_skills(conn: &Connection, source_id: &str, items: &[SkillItem]) -> Result<(), String> {
     conn.execute("DELETE FROM skill_cache WHERE source_id = ?1", params![source_id])
         .map_err(|e| e.to_string())?;
     for item in items {
@@ -60,7 +69,7 @@ fn store_skills(conn: &rusqlite::Connection, source_id: &str, items: &[SkillItem
     Ok(())
 }
 
-fn load_skills(conn: &rusqlite::Connection, source_ids: &[String]) -> Result<Vec<SkillItem>, String> {
+pub fn load_skills(conn: &Connection, source_ids: &[String]) -> Result<Vec<SkillItem>, String> {
     if source_ids.is_empty() {
         return Ok(vec![]);
     }
@@ -102,7 +111,7 @@ fn load_skills(conn: &rusqlite::Connection, source_ids: &[String]) -> Result<Vec
     Ok(out)
 }
 
-fn cache_is_fresh(conn: &rusqlite::Connection, source_id: &str) -> bool {
+pub fn cache_is_fresh(conn: &Connection, source_id: &str) -> bool {
     conn.query_row(
         "SELECT COUNT(*) FROM skill_cache \
          WHERE source_id = ?1 \
@@ -113,7 +122,7 @@ fn cache_is_fresh(conn: &rusqlite::Connection, source_id: &str) -> bool {
     .unwrap_or(0) > 0
 }
 
-fn enabled_source_ids(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
+pub fn enabled_source_ids(conn: &Connection) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare("SELECT id FROM skill_sources WHERE enabled = 1")
         .map_err(|e| e.to_string())?;
@@ -128,17 +137,20 @@ fn enabled_source_ids(conn: &rusqlite::Connection) -> Result<Vec<String>, String
 // ─── Main commands ─────────────────────────────────────────────────────────
 
 /// Return cached skills for all enabled sources (no network).
+pub fn list_skills_inner(conn: &Connection) -> Result<Vec<SkillItem>, String> {
+    let ids = enabled_source_ids(conn)?;
+    load_skills(conn, &ids)
+}
+
 #[tauri::command]
 pub fn list_skills(db: State<DbState>) -> Result<Vec<SkillItem>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let ids = enabled_source_ids(&conn)?;
-    load_skills(&conn, &ids)
+    list_skills_inner(&conn)
 }
 
 /// Refresh one source and return its updated skills.
-#[tauri::command]
-pub async fn refresh_source(
-    db: State<'_, DbState>,
+pub async fn refresh_source_inner(
+    db: Arc<Mutex<Connection>>,
     source_id: String,
 ) -> Result<Vec<SkillItem>, String> {
     let registry = SourceRegistry::new();
@@ -149,18 +161,27 @@ pub async fn refresh_source(
     let items = adapter.fetch().await?;
 
     {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|e| e.to_string())?;
         store_skills(&conn, &source_id, &items)?;
     }
 
     Ok(items)
 }
 
-/// Refresh all enabled sources with stale cache.
 #[tauri::command]
-pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem>, String> {
+pub async fn refresh_source(
+    db: State<'_, DbState>,
+    source_id: String,
+) -> Result<Vec<SkillItem>, String> {
+    refresh_source_inner(std::sync::Arc::clone(&db.0), source_id).await
+}
+
+/// Refresh all enabled sources with stale cache.
+pub async fn refresh_all_sources_inner(
+    db: Arc<Mutex<Connection>>,
+) -> Result<Vec<SkillItem>, String> {
     let source_ids: Vec<String> = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|e| e.to_string())?;
         enabled_source_ids(&conn)?
     };
 
@@ -168,7 +189,7 @@ pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem
 
     for sid in &source_ids {
         let is_fresh = {
-            let conn = db.0.lock().map_err(|e| e.to_string())?;
+            let conn = db.lock().map_err(|e| e.to_string())?;
             cache_is_fresh(&conn, sid)
         };
         if is_fresh { continue; }
@@ -176,7 +197,7 @@ pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem
         if let Some(adapter) = registry.get_adapter(sid) {
             match adapter.fetch().await {
                 Ok(items) => {
-                    let conn = db.0.lock().map_err(|e| e.to_string())?;
+                    let conn = db.lock().map_err(|e| e.to_string())?;
                     if let Err(e) = store_skills(&conn, sid, &items) {
                         log::warn!("Failed to cache {sid}: {e}");
                     }
@@ -186,14 +207,17 @@ pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem
         }
     }
 
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.lock().map_err(|e| e.to_string())?;
     load_skills(&conn, &source_ids)
 }
 
-/// Get a single skill by ID.
 #[tauri::command]
-pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem>, String> {
+    refresh_all_sources_inner(std::sync::Arc::clone(&db.0)).await
+}
+
+/// Get a single skill by ID.
+pub fn get_skill_inner(conn: &Connection, id: String) -> Result<Option<SkillItem>, String> {
     let result = conn.query_row(
         "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools \
          FROM skill_cache WHERE id = ?1",
@@ -222,4 +246,10 @@ pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, St
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+#[tauri::command]
+pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    get_skill_inner(&conn, id)
 }
