@@ -1,0 +1,13 @@
+{
+  "name": "skills-plus-plus",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter desktop tauri dev",
+    "build": "pnpm --filter desktop tauri build",
+    "test": "pnpm --filter desktop test"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

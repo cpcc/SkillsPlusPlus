@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.turbo/
+target/
+*.local
+.env
+apps/desktop/src-tauri/target/
