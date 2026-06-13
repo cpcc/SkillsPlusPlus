@@ -1,13 +1,28 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, GitBranch } from "lucide-react";
+import { ArrowLeft, ExternalLink, GitBranch, Download } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSkill } from "../../hooks/use-skills";
+import { useDirectories } from "../../hooks/use-directories";
+import { useInstallSkill, useInstallTasks } from "../../hooks/use-install";
+import { InstallDialog } from "../../components/install/InstallDialog";
+import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: skill, isLoading } = useSkill(
     id ? decodeURIComponent(id) : "",
+  );
+  const { data: directories = [] } = useDirectories();
+  const installMutation = useInstallSkill();
+  const { data: tasks = [] } = useInstallTasks();
+
+  const [installOpen, setInstallOpen] = useState(false);
+
+  // Find tasks related to this skill
+  const relatedTasks = tasks.filter(
+    (t) => skill && t.skillName === skill.name,
   );
 
   if (isLoading) {
@@ -99,6 +114,15 @@ export default function SkillDetailPage() {
         <div className="mt-6 flex gap-3">
           {skill.repoUrl && (
             <button
+              onClick={() => setInstallOpen(true)}
+              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              <Download className="h-4 w-4" />
+              安装
+            </button>
+          )}
+          {skill.repoUrl && (
+            <button
               onClick={() => openUrl(skill.repoUrl!)}
               className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
@@ -108,13 +132,47 @@ export default function SkillDetailPage() {
           )}
           <button
             onClick={() => openUrl(skill.detailUrl)}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             <ExternalLink className="h-4 w-4" />
             打开详情
           </button>
         </div>
+
+        {/* Install result logs */}
+        {relatedTasks.length > 0 && (
+          <div className="mt-6 space-y-3">
+            <h3 className="text-sm font-medium text-gray-700">安装记录</h3>
+            {relatedTasks.map((t) => (
+              <InstallLogPanel key={t.id} task={t} />
+            ))}
+          </div>
+        )}
       </div>
+
+      {skill.repoUrl && (
+        <InstallDialog
+          open={installOpen}
+          onOpenChange={setInstallOpen}
+          skillName={skill.name}
+          repoUrl={skill.repoUrl}
+          skillId={skill.id}
+          directories={directories}
+          isPending={installMutation.isPending}
+          onInstall={(directoryId, overwrite) => {
+            installMutation.mutate(
+              {
+                skillId: skill.id,
+                skillName: skill.name,
+                repoUrl: skill.repoUrl!,
+                directoryId,
+                overwrite,
+              },
+              { onSuccess: () => setInstallOpen(false) },
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
