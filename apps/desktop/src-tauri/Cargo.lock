@@ -715,6 +715,7 @@ name = "desktop"
 version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",
+ "log",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
@@ -723,7 +724,6 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
- "thiserror 1.0.69",
  "tokio",
  "uuid",
 ]
