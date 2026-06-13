@@ -7,3 +7,25 @@ pub struct AppInfo {
     pub log_path: String,
     pub platform: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryRow {
+    pub id: String,
+    pub tool_name: String,
+    pub path: String,
+    pub is_default: bool,
+    pub is_detected: bool,
+    pub writable: bool,
+    pub enabled: bool,
+    pub skill_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScanResult {
+    pub id: String,
+    pub tool_name: String,
+    pub path: String,
+    pub exists: bool,
+    pub writable: bool,
+    pub skill_count: i64,
+}
