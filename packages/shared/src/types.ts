@@ -18,6 +18,7 @@ export type SkillItem = {
   detailUrl: string;
   updatedAt?: string;
   compatibleTools?: string[];
+  stars?: number;
 };
 
 // ===== AI 工具目录 =====
