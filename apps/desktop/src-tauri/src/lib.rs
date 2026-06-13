@@ -23,7 +23,15 @@ pub fn run() {
             app.manage(DbState(Mutex::new(conn)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::app::get_app_info])
+        .invoke_handler(tauri::generate_handler![
+            commands::app::get_app_info,
+            commands::directory::scan_directories,
+            commands::directory::list_directories,
+            commands::directory::add_directory,
+            commands::directory::toggle_directory,
+            commands::directory::set_default_directory,
+            commands::directory::delete_directory,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
