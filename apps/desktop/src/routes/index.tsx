@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import DiscoverPage from "./discover/index";
 import InstalledPage from "./installed/index";
+import ToolsPage from "./tools/index";
 import SettingsPage from "./settings/index";
 import SkillDetailPage from "./skill/index";
 
@@ -13,6 +14,7 @@ export function AppRoutes() {
         <Route path="/discover" element={<DiscoverPage />} />
         <Route path="/skill/:id" element={<SkillDetailPage />} />
         <Route path="/installed" element={<InstalledPage />} />
+        <Route path="/tools" element={<ToolsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>

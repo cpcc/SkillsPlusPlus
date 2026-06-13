@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { Compass, Package, Settings } from "lucide-react";
+import { Compass, Package, Wrench, Settings } from "lucide-react";
 
 const navItems = [
   { to: "/discover", icon: Compass, label: "发现" },
   { to: "/installed", icon: Package, label: "已安装" },
+  { to: "/tools", icon: Wrench, label: "工具与目录" },
   { to: "/settings", icon: Settings, label: "设置" },
 ];
 
