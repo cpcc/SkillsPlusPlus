@@ -100,3 +100,39 @@
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* Light theme token override.
+   The dark palette is declared above via @theme (which expands to :root).
+   We override the same tokens under an explicit [data-theme="light"] selector,
+   so components using var(--color-*) require zero changes. */
+:root[data-theme="light"] {
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-muted: #6366f1;
+  --color-accent-subtle: rgba(99, 102, 241, 0.10);
+  --color-accent-text: #4f46e5;
+
+  --color-surface-base: #ffffff;
+  --color-surface-sidebar: #f7f7f8;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-hover: #f1f1f3;
+
+  --color-border-subtle: #ececef;
+  --color-border-default: #e0e0e3;
+  --color-border-strong: #d0d0d4;
+
+  --color-text-primary: #1a1a1f;
+  --color-text-secondary: #5c5c6a;
+  --color-text-tertiary: #9a9aa5;
+  --color-text-inverse: #ffffff;
+
+  --color-success: #059669;
+  --color-success-subtle: rgba(5, 150, 105, 0.10);
+  --color-warning: #d97706;
+  --color-warning-subtle: rgba(217, 119, 6, 0.10);
+  --color-danger: #dc2626;
+  --color-danger-subtle: rgba(220, 38, 38, 0.10);
+  --color-info: #2563eb;
+  --color-info-subtle: rgba(37, 99, 235, 0.10);
+}

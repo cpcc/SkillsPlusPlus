@@ -1,8 +1,16 @@
 import { useAppInfo } from "../../hooks/use-app-info";
-import { Info, Database, Monitor } from "lucide-react";
+import { useTheme, type ThemePreference } from "../../hooks/use-theme";
+import { Info, Database, Monitor, SunMoon } from "lucide-react";
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "light", label: "浅色" },
+  { value: "dark", label: "深色" },
+  { value: "system", label: "跟随系统" },
+];
 
 export default function SettingsPage() {
   const { data, isLoading, error } = useAppInfo();
+  const { preference, setPreference } = useTheme();
 
   return (
     <div className="mx-auto max-w-[680px]">
@@ -12,6 +20,37 @@ export default function SettingsPage() {
       <p className="mt-1 text-[13px] text-[var(--color-text-secondary)]">
         来源站配置、缓存管理与日志
       </p>
+
+      {/* Appearance */}
+      <div className="mt-8">
+        <h3 className="mb-3 text-[12px] font-medium uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+          外观
+        </h3>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] divide-y divide-[var(--color-border-subtle)]">
+          <InfoRow icon={SunMoon} label="主题">
+            <div className="inline-flex rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] p-0.5">
+              {THEME_OPTIONS.map((opt) => {
+                const active = preference === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPreference(opt.value)}
+                    className={[
+                      "px-3 py-1.5 text-[12px] font-medium rounded-[var(--radius-sm)] transition-colors",
+                      active
+                        ? "bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]"
+                        : "text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]",
+                    ].join(" ")}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </InfoRow>
+        </div>
+      </div>
 
       {/* App Info */}
       <div className="mt-8">

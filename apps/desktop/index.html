@@ -5,6 +5,25 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tauri + React + Typescript</title>
+    <script>
+      // Anti-FOUC theme bootstrap. Runs synchronously before React mounts.
+      // Must stay in sync with resolveTheme() in src/hooks/use-theme.ts.
+      (function () {
+        try {
+          var stored = localStorage.getItem("skillspp.theme"); // 'light' | 'dark' | 'system' | null
+          var preference = stored || "system";
+          var resolved =
+            preference === "system"
+              ? window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark"
+              : preference;
+          document.documentElement.dataset.theme = resolved;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
   </head>
 
   <body>
