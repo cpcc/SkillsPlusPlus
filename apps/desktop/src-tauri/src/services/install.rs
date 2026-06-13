@@ -1,5 +1,10 @@
-use crate::models::{ConflictInfo, InstallPreview, InstalledSkillRow};
+use crate::models::{ConflictInfo, InstallPreview, InstallStrategy, InstalledSkillRow};
+use crate::services::canonical_store as cstore;
+use crate::services::lockfile::{self, LockEntry};
+use crate::services::skill_md;
+use crate::services::symlink;
 use rusqlite::{params, Connection, Result as SqliteResult};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,10 +19,15 @@ pub fn target_path(directory_path: &str, skill_name: &str) -> PathBuf {
     PathBuf::from(directory_path).join(safe_name)
 }
 
+/// 构建 install 预览。
+/// - `git`/`copy`/`archive`：target = `<directory_path>/<skill_name>`。
+/// - `skills_cli`：target（即 symlink 路径）= `<directory_path>/<skill_name>`，
+///   canonical = `~/.agents/skills/<skill_name>/`。
 pub fn build_preview(
     skill_name: &str,
     repo_url: &str,
     directory_path: &str,
+    strategy: InstallStrategy,
 ) -> InstallPreview {
     let tpath = target_path(directory_path, skill_name);
     let conflict = if tpath.exists() {
@@ -32,15 +42,88 @@ pub fn build_preview(
     } else {
         None
     };
+
+    let (canonical_path, symlink_path) = if strategy == InstallStrategy::SkillsCli {
+        let canonical = cstore::canonical_path(skill_name)
+            .map(|p| p.to_string_lossy().to_string());
+        (canonical, Some(tpath.to_string_lossy().to_string()))
+    } else {
+        (None, None)
+    };
+
     InstallPreview {
         skill_name: skill_name.to_string(),
         repo_url: repo_url.to_string(),
         target_path: tpath.to_string_lossy().to_string(),
+        strategy,
+        canonical_path,
+        symlink_path,
         conflict,
     }
 }
 
 // ─── Install ──────────────────────────────────────────────────────────────────
+
+/// 装完后的统一结果。
+pub struct InstallOutcome {
+    pub log_lines: Vec<String>,
+    pub content_hash: String,
+    /// skills_cli 策略最终的 canonical 路径（其它策略为 None）。
+    pub canonical_path: Option<PathBuf>,
+    /// skills_cli 策略最终的 symlink 路径（其它策略为 None）。
+    pub symlink_path: Option<PathBuf>,
+}
+
+/// 通用 dispatcher：按 strategy 分发到具体安装实现。
+///
+/// - `repo_url`：git clone 时的远程；copy/archive 时若 `archive_url` 为空则尝试用它。
+/// - `archive_url`：copy/archive 的归档下载地址（github 的 codeload tar.gz）。
+/// - `target`：对于 git/copy/archive 是落盘目录；对于 skills_cli 是 agent_link_dir（symlink 父目录）。
+pub fn install_dispatch(
+    strategy: InstallStrategy,
+    skill_name: &str,
+    repo_url: &str,
+    archive_url: Option<&str>,
+    target: &Path,
+) -> Result<InstallOutcome, String> {
+    match strategy {
+        InstallStrategy::Git => {
+            let lines = git_clone(repo_url, &target.join(skill_name))?;
+            let hash = cstore::compute_folder_hash(&target.join(skill_name));
+            Ok(InstallOutcome {
+                log_lines: lines,
+                content_hash: hash,
+                canonical_path: None,
+                symlink_path: None,
+            })
+        }
+        InstallStrategy::Copy => {
+            let url = archive_url.or(Some(repo_url)).unwrap_or("");
+            install_copy(url, &target.join(skill_name))?;
+            let hash = cstore::compute_folder_hash(&target.join(skill_name));
+            Ok(InstallOutcome {
+                log_lines: vec![format!("copy install done -> {}", target.join(skill_name).display())],
+                content_hash: hash,
+                canonical_path: None,
+                symlink_path: None,
+            })
+        }
+        InstallStrategy::Archive => {
+            let url = archive_url.or(Some(repo_url)).unwrap_or("");
+            install_archive(url, &target.join(skill_name))?;
+            let hash = cstore::compute_folder_hash(&target.join(skill_name));
+            Ok(InstallOutcome {
+                log_lines: vec![format!("archive install done -> {}", target.join(skill_name).display())],
+                content_hash: hash,
+                canonical_path: None,
+                symlink_path: None,
+            })
+        }
+        InstallStrategy::SkillsCli => {
+            install_skills_cli(skill_name, repo_url, archive_url, target)
+        }
+    }
+}
 
 /// Returns log lines on success, or an error string.
 pub fn git_clone(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
@@ -64,6 +147,317 @@ pub fn git_clone(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
     } else {
         Err(lines.last().cloned().unwrap_or_else(|| "git clone failed".to_string()))
     }
+}
+
+/// HTTP GET tar.gz/zip → 解压 → strip 顶层目录 → 写入 target。
+/// 不保留 `.git`。
+fn install_copy(url: &str, target: &Path) -> Result<(), String> {
+    download_and_extract(url, target, /* strip_git = */ true)
+}
+
+fn install_archive(url: &str, target: &Path) -> Result<(), String> {
+    download_and_extract(url, target, /* strip_git = */ true)
+}
+
+/// 下载 `url`，根据扩展名（.tar.gz/.tgz/.zip）解压到 target。
+/// 自动 strip 单一顶层目录（如 `repo-main/`）。
+fn download_and_extract(url: &str, target: &Path, strip_git: bool) -> Result<(), String> {
+    if url.is_empty() {
+        return Err("no archive url available for this strategy".to_string());
+    }
+    let bytes = blocking_get_bytes(url)?;
+    extract_archive_from_bytes(&bytes, target, strip_git)
+}
+
+/// 把已下载的归档字节解压到 target（自动 strip 顶层目录、可选去掉 `.git`）。
+pub fn extract_archive_from_bytes(bytes: &[u8], target: &Path, strip_git: bool) -> Result<(), String> {
+    // 先解压到临时目录，再 strip 顶层目录后整体移动到 target。
+    let staging = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    if looks_like_targz(bytes) {
+        extract_tar_gz(bytes, staging.path())?;
+    } else if looks_like_zip(bytes) {
+        extract_zip(bytes, staging.path())?;
+    } else {
+        // 默认按 tar.gz 尝试，失败时给出明确错误。
+        extract_tar_gz(bytes, staging.path())
+            .map_err(|e| format!("archive format unrecognized; tar.gz parse failed: {e}"))?;
+    }
+
+    // 找到真正的 skill 根：若 staging 只有一个目录 → 用它作为内容根；否则用 staging 本身。
+    let content_root = single_child_dir(staging.path()).unwrap_or_else(|| staging.path().to_path_buf());
+
+    fs::create_dir_all(target).map_err(|e| format!("mkdir target: {e}"))?;
+    move_contents(&content_root, target, strip_git)?;
+
+    // 强制校验：装完必须能找到 SKILL.md（大小写不敏感）。
+    if !has_skill_md(target) {
+        // 清掉半成品。
+        let _ = fs::remove_dir_all(target);
+        return Err("installed directory has no SKILL.md".to_string());
+    }
+    Ok(())
+}
+
+fn blocking_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+    // 同步阻塞执行 reqwest，避免在非 async 上下文中调用。
+    let url = url.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                let _ = tx.send(Err(format!("build tokio runtime: {e}")));
+                return;
+            }
+        };
+        let result: Result<Vec<u8>, String> = rt.block_on(async move {
+            let client = reqwest::Client::builder()
+                .user_agent("skills-plus-plus/0.1")
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .map_err(|e| e.to_string())?;
+            let resp = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("http get: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!("http status {}", resp.status()));
+            }
+            let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+            Ok(bytes.to_vec())
+        });
+        let _ = tx.send(result);
+    });
+    rx.recv().map_err(|e| format!("http thread join: {e}"))?
+}
+
+fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<(), String> {
+    let decoder = flate2::read::GzDecoder::new(bytes);
+    let mut archive = tar::Archive::new(decoder);
+    archive.set_overwrite(true);
+    archive.unpack(dest).map_err(|e| format!("tar.gz unpack: {e}"))
+}
+
+fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("zip open: {e}"))?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        let outpath = match file.enclosed_name() {
+            Some(p) => dest.join(p),
+            None => continue,
+        };
+        if file.is_dir() {
+            fs::create_dir_all(&outpath).map_err(|e| format!("mkdir {outpath:?}: {e}"))?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent).map_err(|e| format!("mkdir parent: {e}"))?;
+            }
+            let mut outfile = fs::File::create(&outpath).map_err(|e| format!("create {outpath:?}: {e}"))?;
+            std::io::copy(&mut file, &mut outfile).map_err(|e| format!("copy {outpath:?}: {e}"))?;
+        }
+        // 权限（unix）。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(mode) = file.unix_mode() {
+                let _ = fs::set_permissions(&outpath, fs::Permissions::from_mode(mode));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn single_child_dir(dir: &Path) -> Option<PathBuf> {
+    let entries: Vec<_> = fs::read_dir(dir).ok()?.flatten().collect();
+    if entries.len() == 1 && entries[0].path().is_dir() {
+        Some(entries[0].path())
+    } else {
+        None
+    }
+}
+
+/// 把 `src` 的内容（去掉 `.git`）整体移到 `dst`。
+fn move_contents(src: &Path, dst: &Path, strip_git: bool) -> Result<(), String> {
+    for entry in fs::read_dir(src).map_err(|e| format!("readdir: {e}"))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        if strip_git && name == ".git" {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        // 跨目录时 rename 可能失败，回退到 copy + remove。
+        if fs::rename(&from, &to).is_err() {
+            symlink::copy_recursive(&from, &to)?;
+            let _ = fs::remove_dir_all(&from);
+        }
+    }
+    Ok(())
+}
+
+fn has_skill_md(dir: &Path) -> bool {
+    for name in ["SKILL.md", "skill.md", "Skill.md"] {
+        if dir.join(name).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+fn looks_like_targz(bytes: &[u8]) -> bool {
+    // gzip magic: 1f 8b
+    bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
+}
+
+fn looks_like_zip(bytes: &[u8]) -> bool {
+    // zip magic: 50 4b 03 04
+    bytes.len() >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4b && bytes[2] == 0x03 && bytes[3] == 0x04
+}
+
+/// skills_cli 安装策略（对齐 vercel-labs `npx skills`）：
+/// 1. canonical = `~/.agents/skills/<name>/`
+/// 2. 若 canonical 不存在：用 git/copy/archive 之一把内容装到 canonical
+/// 3. 解析 SKILL.md，必要时 rename canonical 到规范名
+/// 4. 在 `agent_link_dir/<name>` 创建 symlink → canonical
+/// 5. 写 lockfile 条目
+/// 6. 返回 outcome（canonical_path / symlink_path / content_hash）
+///
+/// `agent_link_dir` 通常为 `~/.claude/skills/` 这类 AI 工具目录。
+fn install_skills_cli(
+    skill_name: &str,
+    repo_url: &str,
+    archive_url: Option<&str>,
+    agent_link_dir: &Path,
+) -> Result<InstallOutcome, String> {
+    let canonical_root = cstore::canonical_root()
+        .ok_or_else(|| "cannot resolve home dir for canonical store".to_string())?;
+    fs::create_dir_all(&canonical_root).map_err(|e| format!("mkdir canonical root: {e}"))?;
+
+    let mut canonical = canonical_root.join(skill_md::sanitize_name(skill_name));
+
+    // 1) 拉内容到 canonical。
+    if !canonical.exists() || fs::read_dir(&canonical).map(|mut d| d.next().is_none()).unwrap_or(true) {
+        // 选择底层策略：有 archive_url 用 copy（tar.gz），否则用 git clone。
+        let used_git;
+        if let Some(url) = archive_url.filter(|u| !u.is_empty()) {
+            download_and_extract(url, &canonical, /* strip_git = */ true)?;
+            used_git = false;
+        } else {
+            // 临时 clone 到 canonical。
+            fs::create_dir_all(&canonical).ok();
+            // git_clone 期望 target 是最终目录；先 clone 到 canonical 再清 .git。
+            let _ = git_clone(repo_url, &canonical);
+            if canonical.exists() {
+                let _ = fs::remove_dir_all(canonical.join(".git"));
+            }
+            used_git = true;
+        }
+        let _ = used_git;
+    }
+
+    if !has_skill_md(&canonical) {
+        let _ = fs::remove_dir_all(&canonical);
+        return Err("installed directory has no SKILL.md".to_string());
+    }
+
+    // 2) 规范化目录名。
+    if let Some(manifest) = skill_md::parse_skill_md(&canonical) {
+        let normalized = skill_md::normalize_skill_dir(&canonical, &manifest);
+        canonical = normalized;
+    }
+
+    // 3) symlink：agent_link_dir/<name> -> canonical
+    let link = agent_link_dir.join(skill_md::sanitize_name(skill_name));
+    fs::create_dir_all(agent_link_dir).map_err(|e| format!("mkdir agent_link_dir: {e}"))?;
+    symlink::create_symlink(&canonical, &link)?;
+
+    // 4) 写 lockfile。
+    let hash = cstore::compute_folder_hash(&canonical);
+    let now = now_iso8601();
+    let source_label = derive_source_label(repo_url);
+    let source_type = if archive_url.is_some() { "archive" } else { "github" };
+    let entry = LockEntry {
+        source: source_label,
+        source_type: source_type.to_string(),
+        source_url: repo_url.to_string(),
+        skill_path: "SKILL.md".to_string(),
+        skill_folder_hash: hash.clone(),
+        installed_at: now.clone(),
+        updated_at: now,
+    };
+    let name_key = skill_md::sanitize_name(skill_name);
+    if let Err(e) = lockfile::upsert_entry(&name_key, entry) {
+        log::warn!("lockfile upsert failed for {name_key}: {e}");
+    }
+
+    Ok(InstallOutcome {
+        log_lines: vec![format!(
+            "skills_cli install: {} -> {}",
+            link.display(),
+            canonical.display()
+        )],
+        content_hash: hash,
+        canonical_path: Some(canonical.clone()),
+        symlink_path: Some(link),
+    })
+}
+
+fn derive_source_label(repo_url: &str) -> String {
+    // https://github.com/owner/repo(.git) -> owner/repo
+    let trimmed = repo_url
+        .trim_end_matches(".git")
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if let Some(rest) = trimmed.strip_prefix("github.com/") {
+        return rest.to_string();
+    }
+    trimmed.to_string()
+}
+
+fn now_iso8601() -> String {
+    // 简易 ISO8601（UTC），不引 chrono。
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let (y, mo, d, h, mi, s) = epoch_to_ymdhms(secs);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.000Z")
+}
+
+fn epoch_to_ymdhms(secs: u64) -> (u32, u32, u32, u32, u32, u32) {
+    // 足够用的民用日历算法（1970-01-01 起算）。
+    let s = (secs % 60) as u32;
+    let m = ((secs / 60) % 60) as u32;
+    let h = ((secs / 3600) % 24) as u32;
+    let mut days = secs / 86400;
+    let mut year = 1970u32;
+    loop {
+        let leap = is_leap(year);
+        let yd = if leap { 366 } else { 365 };
+        if days < yd { break; }
+        days -= yd;
+        year += 1;
+    }
+    let leap = is_leap(year);
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1u32;
+    let mut remaining = days as u32;
+    for &dm in mdays.iter() {
+        if remaining < dm { break; }
+        remaining -= dm;
+        month += 1;
+    }
+    let day = remaining + 1;
+    (year, month, day, h, m, s)
+}
+
+fn is_leap(y: u32) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
 /// Verify the installation by checking the target directory exists and is non-empty.
@@ -128,12 +522,19 @@ pub fn record_installed_skill(
     directory_id: &str,
     source_id: Option<&str>,
     repo_url: Option<&str>,
+    strategy: InstallStrategy,
+    content_hash: Option<&str>,
+    canonical_path: Option<&str>,
 ) -> SqliteResult<()> {
     conn.execute(
         "INSERT OR REPLACE INTO installed_skills \
-         (id, skill_id, name, tool_name, directory_id, source_id, repo_url, installed_at, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), 'ok')",
-        params![id, skill_id, skill_name, tool_name, directory_id, source_id, repo_url],
+         (id, skill_id, name, tool_name, directory_id, source_id, repo_url, installed_at, status, \
+          install_strategy, content_hash, canonical_path) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), 'ok', ?8, ?9, ?10)",
+        params![
+            id, skill_id, skill_name, tool_name, directory_id, source_id, repo_url,
+            strategy.as_str(), content_hash, canonical_path,
+        ],
     )?;
     Ok(())
 }
@@ -150,12 +551,14 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
     let mut stmt = conn.prepare(
         "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
                 COALESCE(d.path, '') as directory_path, \
-                i.source_id, i.repo_url, i.installed_at, i.status \
+                i.source_id, i.repo_url, i.installed_at, i.status, \
+                i.install_strategy, i.content_hash, i.canonical_path \
          FROM installed_skills i \
          LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
          ORDER BY i.installed_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
+        let strategy_s: String = row.get(10)?;
         Ok(InstalledSkillRow {
             id: row.get(0)?,
             skill_id: row.get(1)?,
@@ -167,6 +570,9 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
             repo_url: row.get(7)?,
             installed_at: row.get(8)?,
             status: row.get(9)?,
+            install_strategy: crate::models::InstallStrategy::parse(&strategy_s),
+            content_hash: row.get(11)?,
+            canonical_path: row.get(12)?,
         })
     })?;
     rows.collect()
@@ -282,7 +688,21 @@ pub fn check_update_available(skill_dir: &Path) -> Result<bool, String> {
     }
 }
 
+/// 对非 git 安装的 skill：重新下载到 tmp，算 hash，与 stored_hash 比。
+fn hash_differs_for(url: &str, stored_hash: &str) -> Result<bool, String> {
+    let tmp = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    download_and_extract(url, tmp.path(), /* strip_git = */ true)?;
+    let new_hash = cstore::compute_folder_hash(tmp.path());
+    Ok(new_hash != stored_hash)
+}
+
 /// Update a single installed skill's status in DB and return the updated row.
+///
+/// 策略分支：
+/// - git：保持原有 `check_update_available`（git fetch + rev-list）。
+/// - copy / archive：用 content_hash 与远端重新下载比对。
+/// - skills_cli：读 lockfile 里的 `skillFolderHash`，重算 canonical 目录 hash；
+///   两者不一致 → `changed`；一致但 lockfile 记录与远端比对可省略（暂不下载）。
 pub fn refresh_single_skill_status(
     conn: &Connection,
     skill_id: &str,
@@ -290,12 +710,14 @@ pub fn refresh_single_skill_status(
     // Get skill info
     let skill = conn.query_row(
         "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
-                COALESCE(d.path, ''), i.source_id, i.repo_url, i.installed_at, i.status \
+                COALESCE(d.path, ''), i.source_id, i.repo_url, i.installed_at, i.status, \
+                i.install_strategy, i.content_hash, i.canonical_path \
          FROM installed_skills i \
          LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
          WHERE i.id = ?1",
         params![skill_id],
         |row| {
+            let strategy_s: String = row.get(10)?;
             Ok(InstalledSkillRow {
                 id: row.get(0)?,
                 skill_id: row.get(1)?,
@@ -307,6 +729,9 @@ pub fn refresh_single_skill_status(
                 repo_url: row.get(7)?,
                 installed_at: row.get(8)?,
                 status: row.get(9)?,
+                install_strategy: crate::models::InstallStrategy::parse(&strategy_s),
+                content_hash: row.get(11)?,
+                canonical_path: row.get(12)?,
             })
         },
     );
@@ -315,14 +740,51 @@ pub fn refresh_single_skill_status(
         Ok(mut s) => {
             let mut new_status = compute_skill_status(&s.name, &s.directory_path).to_string();
 
-            // If ok and has repo_url, also check for updates
             if new_status == "ok" {
-                if let Some(ref repo_url) = s.repo_url {
-                    if !repo_url.is_empty() {
-                        let target = target_path(&s.directory_path, &s.name);
-                        if let Ok(has_update) = check_update_available(&target) {
-                            if has_update {
-                                new_status = "update_available".to_string();
+                let target = target_path(&s.directory_path, &s.name);
+                match s.install_strategy {
+                    InstallStrategy::Git => {
+                        if let Some(ref repo_url) = s.repo_url {
+                            if !repo_url.is_empty() && target.join(".git").exists() {
+                                if let Ok(has_update) = check_update_available(&target) {
+                                    if has_update {
+                                        new_status = "update_available".to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    InstallStrategy::Copy | InstallStrategy::Archive => {
+                        // 比对 content_hash 与重新下载的 hash。
+                        if let Some(stored) = s.content_hash.as_deref() {
+                            // 用 repo_url 兜底（archive_url 没存进 installed_skills）。
+                            let url = s.repo_url.clone().unwrap_or_default();
+                            if !url.is_empty() {
+                                match hash_differs_for(&url, stored) {
+                                    Ok(true) => new_status = "update_available".to_string(),
+                                    Ok(false) => {}
+                                    Err(e) => log::warn!("hash diff failed for {}: {e}", s.name),
+                                }
+                            }
+                        }
+                    }
+                    InstallStrategy::SkillsCli => {
+                        // canonical 目录 hash 与 lockfile 记录比对。
+                        let canonical = s
+                            .canonical_path
+                            .clone()
+                            .and_then(|p| if p.is_empty() { None } else { Some(PathBuf::from(p)) })
+                            .or_else(|| cstore::canonical_path(&s.name));
+                        if let Some(canon) = canonical {
+                            let actual = cstore::compute_folder_hash(&canon);
+                            let lf = lockfile::read_lockfile();
+                            let stored = lf
+                                .get(&crate::services::skill_md::sanitize_name(&s.name))
+                                .map(|e| e.skill_folder_hash.clone());
+                            if let Some(stored_hash) = stored {
+                                if stored_hash != actual {
+                                    new_status = "changed".to_string();
+                                }
                             }
                         }
                     }
@@ -374,10 +836,29 @@ mod tests {
 
     #[test]
     fn build_preview_no_conflict() {
-        let preview = build_preview("test-skill", "https://github.com/x/y", "/nonexistent/path");
+        let preview = build_preview(
+            "test-skill",
+            "https://github.com/x/y",
+            "/nonexistent/path",
+            InstallStrategy::Git,
+        );
         assert_eq!(preview.skill_name, "test-skill");
         assert_eq!(preview.repo_url, "https://github.com/x/y");
         assert!(preview.conflict.is_none());
+        assert!(preview.canonical_path.is_none());
+        assert!(preview.symlink_path.is_none());
+    }
+
+    #[test]
+    fn build_preview_skills_cli_emits_canonical_and_symlink() {
+        let preview = build_preview(
+            "cli-skill",
+            "https://github.com/x/y",
+            "/tmp/agent-link-dir",
+            InstallStrategy::SkillsCli,
+        );
+        assert!(preview.canonical_path.as_deref().unwrap().ends_with(".agents/skills/cli-skill"));
+        assert!(preview.symlink_path.is_some());
     }
 
     #[test]
@@ -391,6 +872,7 @@ mod tests {
             "my-skill",
             "https://github.com/x/y",
             &tmp.to_string_lossy(),
+            InstallStrategy::Git,
         );
         assert!(preview.conflict.is_some());
         let conflict = preview.conflict.unwrap();
@@ -465,5 +947,73 @@ mod tests {
     #[test]
     fn remove_skill_dir_noop_when_missing() {
         assert!(remove_skill_dir(Path::new("/nonexistent/path/12345")).is_ok());
+    }
+
+    #[test]
+    fn extract_archive_strips_top_level_and_requires_skill_md() {
+        // 构造一个 tar.gz：顶层目录 repo-main/，内含 SKILL.md。
+        let staging = std::env::temp_dir().join("skills_pp_extract_src");
+        let out = std::env::temp_dir().join("skills_pp_extract_dst");
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&out);
+        fs::create_dir_all(staging.join("repo-main")).unwrap();
+        fs::write(staging.join("repo-main/SKILL.md"), "---\nname: demo\n---\nbody").unwrap();
+        fs::write(staging.join("repo-main/lib.txt"), "hello").unwrap();
+
+        // 打包：tar.gz
+        let mut buf: Vec<u8> = vec![];
+        {
+            let encoder = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+            let mut tar = tar::Builder::new(encoder);
+            tar.append_dir_all("repo-main", staging.join("repo-main")).unwrap();
+            tar.finish().unwrap();
+        }
+        extract_archive_from_bytes(&buf, &out, /* strip_git = */ true).expect("extract ok");
+        assert!(out.join("SKILL.md").exists());
+        assert!(out.join("lib.txt").exists());
+        // 顶层目录应被 strip
+        assert!(!out.join("repo-main").exists());
+
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&out);
+    }
+
+    #[test]
+    fn extract_archive_rejects_when_no_skill_md() {
+        let staging = std::env::temp_dir().join("skills_pp_extract_nomd_src");
+        let out = std::env::temp_dir().join("skills_pp_extract_nomd_dst");
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&out);
+        fs::create_dir_all(staging.join("repo-main")).unwrap();
+        fs::write(staging.join("repo-main/README.md"), "no skill md here").unwrap();
+
+        let mut buf: Vec<u8> = vec![];
+        {
+            let encoder = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+            let mut tar = tar::Builder::new(encoder);
+            tar.append_dir_all("repo-main", staging.join("repo-main")).unwrap();
+            tar.finish().unwrap();
+        }
+        let err = extract_archive_from_bytes(&buf, &out, true).unwrap_err();
+        assert!(err.contains("SKILL.md"), "unexpected err: {err}");
+        assert!(!out.exists(), "half-baked dir should be removed");
+
+        let _ = fs::remove_dir_all(&staging);
+    }
+
+    #[test]
+    fn derive_source_label_strips_github_prefix() {
+        assert_eq!(derive_source_label("https://github.com/vercel-labs/skills.git"), "vercel-labs/skills");
+        assert_eq!(derive_source_label("https://github.com/a/b"), "a/b");
+    }
+
+    #[test]
+    fn epoch_to_ymdhms_known_value() {
+        // 2026-06-13T12:00:00 UTC ≈ 1781352000
+        let (y, mo, d, h, mi, s) = epoch_to_ymdhms(1_781_352_000);
+        assert_eq!(y, 2026);
+        assert_eq!(mo, 6);
+        assert_eq!(d, 13);
+        assert_eq!((h, mi, s), (12, 0, 0));
     }
 }

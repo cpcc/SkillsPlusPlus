@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc } from "../lib/ipc";
-import type { InstallPreview } from "@skills-pp/shared";
+import type { InstallPreview, InstallStrategy } from "@skills-pp/shared";
 
 export const INSTALLED_KEY = ["installed-skills"] as const;
 export const TASKS_KEY = ["install-tasks"] as const;
@@ -45,12 +45,14 @@ export function usePreviewInstall() {
       skillName,
       repoUrl,
       directoryId,
+      strategy,
     }: {
       skillName: string;
       repoUrl: string;
       directoryId: string;
+      strategy: InstallStrategy;
     }): Promise<InstallPreview> =>
-      ipc.previewInstall(skillName, repoUrl, directoryId),
+      ipc.previewInstall(skillName, repoUrl, directoryId, strategy),
   });
 }
 
@@ -63,6 +65,8 @@ export function useInstallSkill() {
       repoUrl: string;
       directoryId: string;
       overwrite: boolean;
+      strategy?: InstallStrategy;
+      archiveUrl?: string;
     }) => ipc.installSkill(params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: INSTALLED_KEY });
@@ -96,6 +100,8 @@ export function useReinstallSkill() {
       skillName: string;
       repoUrl: string;
       directoryId: string;
+      strategy?: InstallStrategy;
+      archiveUrl?: string;
     }) => ipc.reinstallSkill(params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: INSTALLED_KEY });

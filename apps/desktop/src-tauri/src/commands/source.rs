@@ -46,13 +46,15 @@ fn store_skills(conn: &rusqlite::Connection, source_id: &str, items: &[SkillItem
     for item in items {
         let tags = serde_json::to_string(&item.tags).unwrap_or_default();
         let tools = serde_json::to_string(&item.compatible_tools).unwrap_or_default();
+        let strategy = item.install_strategy.map(|s| s.as_str().to_string());
         conn.execute(
             "INSERT OR REPLACE INTO skill_cache \
-             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 item.id, source_id, item.name, item.author, item.description,
                 tags, item.repo_url, item.detail_url, item.updated_at, tools,
+                strategy, item.archive_url, item.stars,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -66,40 +68,46 @@ fn load_skills(conn: &rusqlite::Connection, source_ids: &[String]) -> Result<Vec
     }
     let ph: String = (1..=source_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
     let sql = format!(
-        "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools \
+        "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars \
          FROM skill_cache WHERE source_id IN ({ph}) ORDER BY name"
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let params_refs: Vec<&dyn rusqlite::ToSql> = source_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
     let rows = stmt
-        .query_map(params_refs.as_slice(), |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, String>(9)?,
-            ))
-        })
+        .query_map(params_refs.as_slice(), |row| map_skill_cache_row(row))
         .map_err(|e| e.to_string())?;
 
     let mut out = vec![];
     for row in rows {
-        let (id, source_id, name, author, description, tags_s, repo_url, detail_url, updated_at, tools_s) =
-            row.map_err(|e| e.to_string())?;
-        out.push(SkillItem {
-            id, name, author, description, source_id, repo_url, detail_url, updated_at,
-            tags: serde_json::from_str(&tags_s).unwrap_or_default(),
-            compatible_tools: serde_json::from_str(&tools_s).unwrap_or_default(),
-            stars: None,
-        });
+        out.push(row.map_err(|e| e.to_string())?);
     }
     Ok(out)
+}
+
+/// 从 skill_cache 的一行映射出 SkillItem。
+fn map_skill_cache_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillItem> {
+    use crate::models::InstallStrategy;
+    let tags_s: String = row.get(5)?;
+    let tools_s: String = row.get(9)?;
+    let strategy_s: Option<String> = row.get(10)?;
+    let install_strategy = strategy_s
+        .as_deref()
+        .map(|s| InstallStrategy::parse(s));
+    Ok(SkillItem {
+        id: row.get(0)?,
+        name: row.get(2)?,
+        author: row.get(3)?,
+        description: row.get(4)?,
+        source_id: row.get(1)?,
+        repo_url: row.get(6)?,
+        detail_url: row.get(7)?,
+        updated_at: row.get(8)?,
+        tags: serde_json::from_str(&tags_s).unwrap_or_default(),
+        compatible_tools: serde_json::from_str(&tools_s).unwrap_or_default(),
+        stars: row.get(12)?,
+        install_strategy,
+        archive_url: row.get(11)?,
+    })
 }
 
 fn cache_is_fresh(conn: &rusqlite::Connection, source_id: &str) -> bool {
@@ -194,31 +202,15 @@ pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem
 #[tauri::command]
 pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let result = conn.query_row(
-        "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools \
-         FROM skill_cache WHERE id = ?1",
-        params![id],
-        |row| Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
-            row.get::<_, String>(5)?,
-            row.get::<_, Option<String>>(6)?,
-            row.get::<_, String>(7)?,
-            row.get::<_, Option<String>>(8)?,
-            row.get::<_, String>(9)?,
-        )),
-    );
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars \
+             FROM skill_cache WHERE id = ?1",
+        )
+        .map_err(|e| e.to_string())?;
+    let result = stmt.query_row(params![id], |row| map_skill_cache_row(row));
     match result {
-        Ok((id, source_id, name, author, description, tags_s, repo_url, detail_url, updated_at, tools_s)) =>
-            Ok(Some(SkillItem {
-                id, name, author, description, source_id, repo_url, detail_url, updated_at,
-                tags: serde_json::from_str(&tags_s).unwrap_or_default(),
-                compatible_tools: serde_json::from_str(&tools_s).unwrap_or_default(),
-                stars: None,
-            })),
+        Ok(item) => Ok(Some(item)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.to_string()),
     }

@@ -1,4 +1,4 @@
-use crate::models::SkillItem;
+use crate::models::{InstallStrategy, SkillItem};
 use crate::services::source::SourceAdapter;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -50,10 +50,17 @@ fn infer_tools(topics: &[String]) -> Vec<String> {
     tools
 }
 
+/// 合成 GitHub 默认分支（main）的 tar.gz 归档 URL，供 copy/archive/skills_cli 策略使用。
+/// https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/main
+pub fn github_archive_url(owner: &str, repo: &str) -> String {
+    format!("https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/main")
+}
+
 impl SourceAdapter for GithubAdapter {
     fn source_id(&self) -> &'static str { "skills_sh" }
     fn source_name(&self) -> &'static str { "skills.sh" }
     fn base_url(&self) -> &'static str { "https://skills.sh" }
+    fn default_install_strategy(&self) -> InstallStrategy { InstallStrategy::Git }
 
     fn fetch(&self) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<SkillItem>, String>> + Send>> {
         Box::pin(async {
@@ -93,6 +100,7 @@ impl SourceAdapter for GithubAdapter {
                         .filter(|t| !t.ends_with("-skill"))
                         .cloned()
                         .collect();
+                    let archive_url = github_archive_url(&repo.owner.login, &repo.name);
                     all_items.push(SkillItem {
                         id: format!("skills_sh_{}", repo.id),
                         name: repo.name,
@@ -105,6 +113,8 @@ impl SourceAdapter for GithubAdapter {
                         updated_at: Some(repo.updated_at),
                         compatible_tools,
                         stars: Some(repo.stargazers_count),
+                        install_strategy: Some(InstallStrategy::Git),
+                        archive_url: Some(archive_url),
                     });
                 }
 

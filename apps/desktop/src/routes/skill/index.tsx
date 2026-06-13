@@ -181,9 +181,11 @@ export default function SkillDetailPage() {
           skillName={skill.name}
           repoUrl={skill.repoUrl}
           skillId={skill.id}
+          defaultStrategy={skill.installStrategy}
+          archiveUrl={skill.archiveUrl}
           directories={directories}
           isPending={installMutation.isPending}
-          onInstall={(directoryId, overwrite) => {
+          onInstall={(directoryId, overwrite, strategy) => {
             installMutation.mutate(
               {
                 skillId: skill.id,
@@ -191,6 +193,8 @@ export default function SkillDetailPage() {
                 repoUrl: skill.repoUrl!,
                 directoryId,
                 overwrite,
+                strategy,
+                archiveUrl: skill.archiveUrl,
               },
               { onSuccess: () => setInstallOpen(false) },
             );

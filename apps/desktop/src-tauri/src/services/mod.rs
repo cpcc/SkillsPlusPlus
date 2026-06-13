@@ -3,3 +3,7 @@ pub mod source;
 pub mod adapters;
 pub mod source_registry;
 pub mod install;
+pub mod skill_md;
+pub mod canonical_store;
+pub mod lockfile;
+pub mod symlink;

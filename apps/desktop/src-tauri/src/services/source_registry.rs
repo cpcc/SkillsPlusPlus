@@ -1,3 +1,4 @@
+use crate::models::InstallStrategy;
 use crate::services::adapters::{GithubAdapter, LobehubAdapter, StubAdapter};
 use crate::services::source::SourceAdapter;
 
@@ -11,9 +12,20 @@ impl SourceRegistry {
             adapters: vec![
                 Box::new(GithubAdapter),
                 Box::new(LobehubAdapter),
-                Box::new(StubAdapter { id: "skillhub", name: "SkillHub.cn", url: "https://skillhub.cn" }),
-                Box::new(StubAdapter { id: "clawhub", name: "ClawHub.ai", url: "https://clawhub.ai/skills" }),
-                Box::new(StubAdapter { id: "skillsmp", name: "SkillsMP", url: "https://skillsmp.com" }),
+                // 直接拷贝流派：skillhub/openclaw
+                Box::new(StubAdapter {
+                    id: "skillhub", name: "SkillHub.cn", url: "https://skillhub.cn",
+                    strategy: InstallStrategy::Copy,
+                }),
+                Box::new(StubAdapter {
+                    id: "clawhub", name: "ClawHub.ai", url: "https://clawhub.ai/skills",
+                    strategy: InstallStrategy::Copy,
+                }),
+                // zip 解压流派
+                Box::new(StubAdapter {
+                    id: "skillsmp", name: "SkillsMP", url: "https://skillsmp.com",
+                    strategy: InstallStrategy::Archive,
+                }),
             ],
         }
     }

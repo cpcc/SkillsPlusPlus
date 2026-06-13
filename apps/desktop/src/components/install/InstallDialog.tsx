@@ -1,8 +1,15 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState, useEffect } from "react";
-import { X, AlertTriangle, CheckCircle, Loader2, ChevronDown } from "lucide-react";
-import type { AiToolDirectory, InstallPreview } from "@skills-pp/shared";
+import { X, AlertTriangle, CheckCircle, Loader2, ChevronDown, Link2 } from "lucide-react";
+import type { AiToolDirectory, InstallPreview, InstallStrategy } from "@skills-pp/shared";
 import { ipc } from "../../lib/ipc";
+
+const STRATEGIES: { value: InstallStrategy; label: string; hint: string }[] = [
+  { value: "git", label: "Git 克隆", hint: "完整 .git，可增量更新" },
+  { value: "copy", label: "拷贝", hint: "tar.gz 解压，无 .git" },
+  { value: "archive", label: "压缩包", hint: "zip 解压" },
+  { value: "skills_cli", label: "软链 + 规范存储", hint: "与 npx skills 互通" },
+];
 
 interface Props {
   open: boolean;
@@ -10,8 +17,12 @@ interface Props {
   skillName: string;
   repoUrl: string;
   skillId?: string;
+  /** adapter 声明的默认策略 */
+  defaultStrategy?: InstallStrategy;
+  /** 切换到 copy/archive/skills_cli 时使用的归档下载地址 */
+  archiveUrl?: string;
   directories: AiToolDirectory[];
-  onInstall: (directoryId: string, overwrite: boolean) => void;
+  onInstall: (directoryId: string, overwrite: boolean, strategy: InstallStrategy) => void;
   isPending: boolean;
 }
 
@@ -21,6 +32,8 @@ export function InstallDialog({
   skillName,
   repoUrl,
   skillId: _skillId,
+  defaultStrategy = "git",
+  archiveUrl,
   directories,
   onInstall,
   isPending,
@@ -29,6 +42,7 @@ export function InstallDialog({
   const defaultDir = enabledDirs.find((d) => d.isDefault) ?? enabledDirs[0];
 
   const [selectedDirId, setSelectedDirId] = useState(defaultDir?.id ?? "");
+  const [strategy, setStrategy] = useState<InstallStrategy>(defaultStrategy);
   const [preview, setPreview] = useState<InstallPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -36,25 +50,29 @@ export function InstallDialog({
   useEffect(() => {
     if (open) {
       setSelectedDirId(defaultDir?.id ?? "");
+      setStrategy(defaultStrategy);
       setPreview(null);
       setOverwrite(false);
     }
-  }, [open, defaultDir?.id]);
+  }, [open, defaultDir?.id, defaultStrategy]);
 
   useEffect(() => {
     if (!selectedDirId || !repoUrl) return;
     setLoadingPreview(true);
-    ipc.previewInstall(skillName, repoUrl, selectedDirId)
+    ipc.previewInstall(skillName, repoUrl, selectedDirId, strategy)
       .then((p: InstallPreview) => { setPreview(p); setOverwrite(false); })
       .catch(() => setPreview(null))
       .finally(() => setLoadingPreview(false));
-  }, [selectedDirId, skillName, repoUrl]);
+  }, [selectedDirId, skillName, repoUrl, strategy]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedDirId) return;
-    onInstall(selectedDirId, overwrite);
+    onInstall(selectedDirId, overwrite, strategy);
   }
+
+  const nonGitStrategy = strategy !== "git";
+  const missingArchiveUrl = nonGitStrategy && !archiveUrl && strategy !== "skills_cli";
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -81,6 +99,46 @@ export function InstallDialog({
               <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--color-text-tertiary)]">
                 {repoUrl}
               </p>
+            </div>
+
+            {/* Strategy selector */}
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
+                安装方式
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {STRATEGIES.map((opt) => {
+                  const selected = strategy === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      onClick={() => setStrategy(opt.value)}
+                      className={`rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors ${
+                        selected
+                          ? "border-[var(--color-accent)] bg-[var(--color-accent-subtle)]"
+                          : "border-[var(--color-border-default)] bg-[var(--color-surface-raised)] hover:bg-[var(--color-surface-hover)]"
+                      }`}
+                    >
+                      <p className={`text-[12px] font-medium ${
+                        selected
+                          ? "text-[var(--color-accent)]"
+                          : "text-[var(--color-text-secondary)]"
+                      }`}>
+                        {opt.label}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+                        {opt.hint}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              {missingArchiveUrl && (
+                <p className="mt-1.5 text-[11px] text-[var(--color-warning)]">
+                  该来源未提供归档下载地址，可能无法以该方式安装。
+                </p>
+              )}
             </div>
 
             {/* Directory selector */}
@@ -122,10 +180,24 @@ export function InstallDialog({
             {preview && !loadingPreview && (
               <div className="space-y-2.5">
                 <div className="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] p-3">
-                  <p className="text-[11px] text-[var(--color-text-tertiary)]">安装到</p>
-                  <p className="mt-0.5 truncate font-mono text-[12px] text-[var(--color-text-secondary)]">
-                    {preview.targetPath}
+                  <p className="text-[11px] text-[var(--color-text-tertiary)]">
+                    {preview.strategy === "skills_cli" ? "将创建软链" : "安装到"}
                   </p>
+                  {preview.strategy === "skills_cli" ? (
+                    <div className="mt-1 space-y-1">
+                      <p className="truncate font-mono text-[12px] text-[var(--color-text-secondary)]">
+                        {preview.symlinkPath}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-tertiary)]">
+                        <Link2 className="h-3 w-3" />
+                        <span className="truncate font-mono">→ {preview.canonicalPath}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-0.5 truncate font-mono text-[12px] text-[var(--color-text-secondary)]">
+                      {preview.targetPath}
+                    </p>
+                  )}
                 </div>
 
                 {preview.conflict && (

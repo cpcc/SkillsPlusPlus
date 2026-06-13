@@ -47,6 +47,8 @@ pub fn run() {
             commands::install::check_git_available,
             commands::install::refresh_installed_skills,
             commands::install::check_skill_update,
+            commands::install::read_lockfile,
+            commands::install::list_canonical_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

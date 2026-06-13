@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
   InstallTaskResult, InstallPreview, InstalledSkill,
+  InstallStrategy, LockEntry, CanonicalSkill,
 } from "@skills-pp/shared";
 
 export const ipc = {
@@ -33,14 +34,23 @@ export const ipc = {
   getSkill: (id: string): Promise<SkillItem | null> => invoke("get_skill", { id }),
 
   // Install
-  previewInstall: (skillName: string, repoUrl: string, directoryId: string): Promise<InstallPreview> =>
-    invoke("preview_install", { skillName, repoUrl, directoryId }),
+  previewInstall: (
+    skillName: string,
+    repoUrl: string,
+    directoryId: string,
+    strategy: InstallStrategy = "git",
+  ): Promise<InstallPreview> =>
+    invoke("preview_install", { skillName, repoUrl, directoryId, strategy }),
   installSkill: (params: {
     skillId?: string; skillName: string; repoUrl: string;
     directoryId: string; overwrite: boolean;
+    strategy?: InstallStrategy;
+    archiveUrl?: string;
   }): Promise<InstallTaskResult> => invoke("install_skill", params),
   reinstallSkill: (params: {
     skillId?: string; skillName: string; repoUrl: string; directoryId: string;
+    strategy?: InstallStrategy;
+    archiveUrl?: string;
   }): Promise<InstallTaskResult> => invoke("reinstall_skill", params),
   uninstallSkill: (skillName: string, directoryId: string): Promise<InstallTaskResult> =>
     invoke("uninstall_skill", { skillName, directoryId }),
@@ -49,4 +59,8 @@ export const ipc = {
   checkGitAvailable: (): Promise<boolean> => invoke("check_git_available"),
   refreshInstalledSkills: (): Promise<InstalledSkill[]> => invoke("refresh_installed_skills"),
   checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => invoke("check_skill_update", { skillId }),
+
+  // Canonical store / lockfile（与 npx skills 互通）
+  readLockfile: (): Promise<Record<string, LockEntry>> => invoke("read_lockfile"),
+  listCanonicalSkills: (): Promise<CanonicalSkill[]> => invoke("list_canonical_skills"),
 };

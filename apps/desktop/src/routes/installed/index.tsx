@@ -58,7 +58,7 @@ export default function InstalledPage() {
     );
   }
 
-  function handleReinstallConfirm(directoryId: string, _overwrite: boolean) {
+  function handleReinstallConfirm(directoryId: string, _overwrite: boolean, strategy: InstalledSkill["installStrategy"]) {
     if (!reinstallTarget) return;
     setActionPendingId(reinstallTarget.id);
     reinstallMutation.mutate(
@@ -67,6 +67,7 @@ export default function InstalledPage() {
         skillName: reinstallTarget.name,
         repoUrl: reinstallTarget.repoUrl ?? "",
         directoryId,
+        strategy,
       },
       {
         onSettled: () => {
@@ -294,6 +295,7 @@ export default function InstalledPage() {
           skillName={reinstallTarget.name}
           repoUrl={reinstallTarget.repoUrl ?? ""}
           skillId={reinstallTarget.skillId}
+          defaultStrategy={reinstallTarget.installStrategy}
           directories={directories}
           isPending={reinstallMutation.isPending}
           onInstall={handleReinstallConfirm}

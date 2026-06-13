@@ -1,4 +1,4 @@
-use crate::models::SkillItem;
+use crate::models::{InstallStrategy, SkillItem};
 use crate::services::source::SourceAdapter;
 use serde::Deserialize;
 use std::pin::Pin;
@@ -31,6 +31,9 @@ impl SourceAdapter for LobehubAdapter {
     fn source_id(&self) -> &'static str { "lobehub" }
     fn source_name(&self) -> &'static str { "LobeHub" }
     fn base_url(&self) -> &'static str { "https://lobehub.com/skills" }
+    /// Lobehub 暂未提供稳定的 zip 下载地址；先用 archive 作为默认策略（落地时
+    /// 退回 copy：把 homepage 文件抓下来），等 API 明确后补真实 archive_url。
+    fn default_install_strategy(&self) -> InstallStrategy { InstallStrategy::Archive }
 
     fn fetch(&self) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<SkillItem>, String>> + Send>> {
         Box::pin(async {
@@ -64,6 +67,8 @@ impl SourceAdapter for LobehubAdapter {
                     updated_at: p.created_at,
                     compatible_tools: vec!["通用".to_string()],
                     stars: None,
+                    install_strategy: Some(InstallStrategy::Archive),
+                    archive_url: None,
                 }
             }).collect();
 

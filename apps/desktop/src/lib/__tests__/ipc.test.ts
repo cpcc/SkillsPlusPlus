@@ -69,11 +69,11 @@ describe("ipc", () => {
   });
 
   it("previewInstall passes all params", async () => {
-    mockInvoke.mockResolvedValue({ skillName: "test", repoUrl: "url", targetPath: "/tmp/test" });
+    mockInvoke.mockResolvedValue({ skillName: "test", repoUrl: "url", targetPath: "/tmp/test", strategy: "git" });
     const { ipc } = await import("../ipc");
-    await ipc.previewInstall("test", "url", "dir-1");
+    await ipc.previewInstall("test", "url", "dir-1", "copy");
     expect(mockInvoke).toHaveBeenCalledWith("preview_install", {
-      skillName: "test", repoUrl: "url", directoryId: "dir-1",
+      skillName: "test", repoUrl: "url", directoryId: "dir-1", strategy: "copy",
     });
   });
 
@@ -81,10 +81,10 @@ describe("ipc", () => {
     mockInvoke.mockResolvedValue({ id: "task-1", status: "success" });
     const { ipc } = await import("../ipc");
     await ipc.installSkill({
-      skillName: "test", repoUrl: "url", directoryId: "dir-1", overwrite: false,
+      skillName: "test", repoUrl: "url", directoryId: "dir-1", overwrite: false, strategy: "copy",
     });
     expect(mockInvoke).toHaveBeenCalledWith("install_skill", {
-      skillName: "test", repoUrl: "url", directoryId: "dir-1", overwrite: false,
+      skillName: "test", repoUrl: "url", directoryId: "dir-1", overwrite: false, strategy: "copy",
     });
   });
 
