@@ -5,7 +5,7 @@ pub mod services;
 
 use commands::app::DbState;
 use repositories::db;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,7 +21,17 @@ pub fn run() {
             db::migrate(&conn).expect("Failed to run database migrations");
             db::seed_sources(&conn).expect("Failed to seed sources");
 
-            app.manage(DbState(Mutex::new(conn)));
+            let db_arc = Arc::new(Mutex::new(conn));
+            app.manage(DbState(std::sync::Arc::clone(&db_arc)));
+
+            // Start HTTP bridge for browser-based debugging (no-op if port is taken).
+            let version = app.package_info().version.to_string();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = services::http_bridge::start("127.0.0.1:3030", db_arc, version).await {
+                    log::warn!("HTTP bridge stopped: {e}");
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

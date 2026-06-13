@@ -4,9 +4,10 @@ use crate::services::canonical_store as cstore;
 use crate::services::install as svc;
 use crate::services::lockfile::{self, LockEntry};
 use crate::services::skill_md;
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 use uuid::Uuid;
 
@@ -55,15 +56,13 @@ pub struct CanonicalSkillView {
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
 /// Build a preview before installing (shows target path, strategy-specific paths, and any conflict).
-#[tauri::command]
-pub fn preview_install(
-    db: State<DbState>,
+pub fn preview_install_inner(
+    conn: &Connection,
     skill_name: String,
     repo_url: String,
     directory_id: String,
     strategy: Option<InstallStrategy>,
 ) -> Result<InstallPreview, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
     let dir_path: String = conn
         .query_row(
             "SELECT path FROM ai_tool_directories WHERE id = ?1",
@@ -76,11 +75,22 @@ pub fn preview_install(
     Ok(svc::build_preview(&skill_name, &repo_url, &dir_path, strategy))
 }
 
+#[tauri::command]
+pub fn preview_install(
+    db: State<DbState>,
+    skill_name: String,
+    repo_url: String,
+    directory_id: String,
+    strategy: Option<InstallStrategy>,
+) -> Result<InstallPreview, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    preview_install_inner(&conn, skill_name, repo_url, directory_id, strategy)
+}
+
 /// Install a skill via the requested strategy.
 /// `overwrite` = true removes existing dir before installing.
-#[tauri::command]
-pub async fn install_skill(
-    db: State<'_, DbState>,
+pub async fn install_skill_inner(
+    db: Arc<Mutex<Connection>>,
     skill_id: Option<String>,
     skill_name: String,
     repo_url: String,
@@ -93,7 +103,7 @@ pub async fn install_skill(
 
     // Look up directory path + tool_name
     let (dir_path, tool_name): (String, String) = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|e| e.to_string())?;
         conn.query_row(
             "SELECT path, tool_name FROM ai_tool_directories WHERE id = ?1",
             params![directory_id],
@@ -107,7 +117,7 @@ pub async fn install_skill(
 
     // Create task record
     {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|e| e.to_string())?;
         svc::create_install_task(
             &conn,
             &task_id,
@@ -180,7 +190,7 @@ pub async fn install_skill(
 
     // Update task + record installed skill
     {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|e| e.to_string())?;
         svc::finish_install_task(&conn, &task_id, success, error_msg.as_deref())
             .map_err(|e| e.to_string())?;
 
@@ -221,7 +231,43 @@ pub async fn install_skill(
     })
 }
 
+#[tauri::command]
+pub async fn install_skill(
+    db: State<'_, DbState>,
+    skill_id: Option<String>,
+    skill_name: String,
+    repo_url: String,
+    directory_id: String,
+    overwrite: bool,
+    strategy: Option<InstallStrategy>,
+    archive_url: Option<String>,
+) -> Result<InstallTaskRow, String> {
+    install_skill_inner(
+        std::sync::Arc::clone(&db.0),
+        skill_id,
+        skill_name,
+        repo_url,
+        directory_id,
+        overwrite,
+        strategy,
+        archive_url,
+    )
+    .await
+}
+
 /// Reinstall = remove + install.
+pub async fn reinstall_skill_inner(
+    db: Arc<Mutex<Connection>>,
+    skill_id: Option<String>,
+    skill_name: String,
+    repo_url: String,
+    directory_id: String,
+    strategy: Option<InstallStrategy>,
+    archive_url: Option<String>,
+) -> Result<InstallTaskRow, String> {
+    install_skill_inner(db, skill_id, skill_name, repo_url, directory_id, true, strategy, archive_url).await
+}
+
 #[tauri::command]
 pub async fn reinstall_skill(
     db: State<'_, DbState>,
@@ -232,29 +278,17 @@ pub async fn reinstall_skill(
     strategy: Option<InstallStrategy>,
     archive_url: Option<String>,
 ) -> Result<InstallTaskRow, String> {
-    install_skill(
-        db,
-        skill_id,
-        skill_name,
-        repo_url,
-        directory_id,
-        true,
-        strategy,
-        archive_url,
-    )
-    .await
+    reinstall_skill_inner(std::sync::Arc::clone(&db.0), skill_id, skill_name, repo_url, directory_id, strategy, archive_url).await
 }
 
 /// Uninstall: remove directory + DB record. skills_cli 只删 symlink，保留 canonical。
-#[tauri::command]
-pub fn uninstall_skill(
-    db: State<DbState>,
+pub fn uninstall_skill_inner(
+    conn: &Connection,
     skill_name: String,
     directory_id: String,
 ) -> Result<InstallTaskRow, String> {
-    let (dir_path, strategy_s): (String, String) = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
+    let (dir_path, strategy_s): (String, String) = conn
+        .query_row(
             "SELECT d.path, COALESCE(i.install_strategy, 'git') \
              FROM ai_tool_directories d \
              LEFT JOIN installed_skills i ON i.directory_id = d.id AND i.name = ?1 \
@@ -262,8 +296,7 @@ pub fn uninstall_skill(
             params![skill_name, directory_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| e.to_string())?
-    };
+        .map_err(|e| e.to_string())?;
     let strategy = InstallStrategy::parse(&strategy_s);
 
     let target = svc::target_path(&dir_path, &skill_name);
@@ -274,28 +307,25 @@ pub fn uninstall_skill(
         Err(e) => (false, Some(e)),
     };
 
-    {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        if success {
-            svc::remove_installed_skill(&conn, &skill_name, &directory_id)
-                .map_err(|e| e.to_string())?;
-        }
-        // Persist task record
-        conn.execute(
-            "INSERT INTO install_tasks \
-             (id, skill_name, tool_name, directory_id, action, status, started_at, finished_at, error_message) \
-             SELECT ?1, ?2, tool_name, ?3, 'uninstall', ?4, datetime('now'), datetime('now'), ?5 \
-             FROM ai_tool_directories WHERE id = ?3",
-            params![
-                task_id,
-                skill_name,
-                directory_id,
-                if success { "success" } else { "failed" },
-                error_msg,
-            ],
-        )
-        .map_err(|e| e.to_string())?;
+    if success {
+        svc::remove_installed_skill(conn, &skill_name, &directory_id)
+            .map_err(|e| e.to_string())?;
     }
+    // Persist task record
+    conn.execute(
+        "INSERT INTO install_tasks \
+         (id, skill_name, tool_name, directory_id, action, status, started_at, finished_at, error_message) \
+         SELECT ?1, ?2, tool_name, ?3, 'uninstall', ?4, datetime('now'), datetime('now'), ?5 \
+         FROM ai_tool_directories WHERE id = ?3",
+        params![
+            task_id,
+            skill_name,
+            directory_id,
+            if success { "success" } else { "failed" },
+            error_msg,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
 
     // skills_cli 卸载：仅删 symlink（上面 remove_skill_dir 已处理），保留 canonical。
     // 其它策略：直接删目录。两者行为已在上面统一完成，这里无需额外动作。
@@ -316,37 +346,60 @@ pub fn uninstall_skill(
     })
 }
 
+#[tauri::command]
+pub fn uninstall_skill(
+    db: State<DbState>,
+    skill_name: String,
+    directory_id: String,
+) -> Result<InstallTaskRow, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    uninstall_skill_inner(&conn, skill_name, directory_id)
+}
+
 /// List all installed skills (with real-time filesystem status check).
+pub fn list_installed_skills_inner(conn: &Connection) -> Result<Vec<InstalledSkillRow>, String> {
+    svc::refresh_installed_status(conn).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn list_installed_skills(db: State<DbState>) -> Result<Vec<InstalledSkillRow>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    svc::refresh_installed_status(&conn).map_err(|e| e.to_string())
+    list_installed_skills_inner(&conn)
 }
 
 /// Refresh all installed skills status by scanning filesystem.
+pub fn refresh_installed_skills_inner(conn: &Connection) -> Result<Vec<InstalledSkillRow>, String> {
+    svc::refresh_installed_status(conn).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn refresh_installed_skills(db: State<DbState>) -> Result<Vec<InstalledSkillRow>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    svc::refresh_installed_status(&conn).map_err(|e| e.to_string())
+    refresh_installed_skills_inner(&conn)
 }
 
 /// Check for updates on a single installed skill and update its status.
+pub fn check_skill_update_inner(
+    conn: &Connection,
+    skill_id: String,
+) -> Result<InstalledSkillRow, String> {
+    svc::refresh_single_skill_status(conn, &skill_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Skill not found".to_string())
+}
+
 #[tauri::command]
 pub fn check_skill_update(
     db: State<DbState>,
     skill_id: String,
 ) -> Result<InstalledSkillRow, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    svc::refresh_single_skill_status(&conn, &skill_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Skill not found".to_string())
+    check_skill_update_inner(&conn, skill_id)
 }
 
 /// List recent install tasks (last 50).
-#[tauri::command]
-pub fn list_install_tasks(db: State<DbState>) -> Result<Vec<InstallTaskRow>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let raw = svc::list_install_tasks(&conn, 50).map_err(|e| e.to_string())?;
+pub fn list_install_tasks_inner(conn: &Connection) -> Result<Vec<InstallTaskRow>, String> {
+    let raw = svc::list_install_tasks(conn, 50).map_err(|e| e.to_string())?;
     Ok(raw.into_iter().map(|(id, skill_name, action, status, error_message)| InstallTaskRow {
         id,
         skill_id: None,
@@ -362,14 +415,24 @@ pub fn list_install_tasks(db: State<DbState>) -> Result<Vec<InstallTaskRow>, Str
     }).collect())
 }
 
-/// Check if git is available on this system.
 #[tauri::command]
-pub fn check_git_available() -> bool {
+pub fn list_install_tasks(db: State<DbState>) -> Result<Vec<InstallTaskRow>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    list_install_tasks_inner(&conn)
+}
+
+/// Check if git is available on this system.
+pub fn check_git_available_inner() -> bool {
     std::process::Command::new("git")
         .arg("--version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn check_git_available() -> bool {
+    check_git_available_inner()
 }
 
 /// 直接读 `~/.agents/.skill-lock.json`（与 `npx skills` 互通）。
