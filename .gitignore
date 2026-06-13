@@ -6,3 +6,5 @@ target/
 .env
 apps/desktop/src-tauri/target/
 .claude/worktrees
+docs/
+CLAUDE.md
