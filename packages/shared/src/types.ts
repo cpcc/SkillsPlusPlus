@@ -96,3 +96,26 @@ export type AppError = {
   message: string;
   detail?: string;
 };
+
+// ===== 安装任务 (frontend view) =====
+export type InstallTaskResult = {
+  id: string;
+  skillId?: string;
+  skillName: string;
+  toolName: string;
+  directoryId: string;
+  action: "install" | "reinstall" | "uninstall";
+  status: "success" | "failed" | "running";
+  errorMessage?: string;
+  logLines: string[];
+};
+
+export type InstallPreview = {
+  skillName: string;
+  repoUrl: string;
+  targetPath: string;
+  conflict?: {
+    existingPath: string;
+    kind: "existing_dir" | "existing_file";
+  };
+};
