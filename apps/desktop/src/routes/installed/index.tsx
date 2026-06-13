@@ -11,6 +11,7 @@ import {
   RefreshCw,
   ArrowUpCircle,
   ExternalLink,
+  Package,
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
@@ -27,10 +28,10 @@ import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 import type { InstalledSkill } from "@skills-pp/shared";
 
 const STATUS_CONFIG = {
-  ok: { icon: CheckCircle, label: "正常", cls: "text-green-600 bg-green-50" },
-  missing: { icon: AlertCircle, label: "缺失", cls: "text-red-600 bg-red-50" },
-  changed: { icon: HelpCircle, label: "已变更", cls: "text-yellow-600 bg-yellow-50" },
-  update_available: { icon: ArrowUpCircle, label: "有更新", cls: "text-blue-600 bg-blue-50" },
+  ok: { icon: CheckCircle, label: "正常", cls: "text-[var(--color-success)] bg-[var(--color-success-subtle)]" },
+  missing: { icon: AlertCircle, label: "缺失", cls: "text-[var(--color-danger)] bg-[var(--color-danger-subtle)]" },
+  changed: { icon: HelpCircle, label: "已变更", cls: "text-[var(--color-warning)] bg-[var(--color-warning-subtle)]" },
+  update_available: { icon: ArrowUpCircle, label: "有更新", cls: "text-[var(--color-info)] bg-[var(--color-info-subtle)]" },
 } as const;
 
 export default function InstalledPage() {
@@ -84,17 +85,14 @@ export default function InstalledPage() {
   }
 
   function handleOpenDir(skill: InstalledSkill) {
-    // Build the actual skill directory path
     const skillPath = skill.directoryPath
       ? `${skill.directoryPath}/${skill.name}`
       : skill.directoryId;
     openPath(skillPath);
   }
 
-  // Recent tasks (latest 5)
   const recentTasks = tasks.slice(0, 5);
 
-  // Compute skill full path for display
   function getSkillPath(skill: InstalledSkill): string {
     if (skill.directoryPath) {
       return `${skill.directoryPath}/${skill.name}`;
@@ -104,23 +102,36 @@ export default function InstalledPage() {
 
   if (isLoading) {
     return (
-      <div className="mt-20 text-center text-sm text-gray-400">加载中...</div>
+      <div className="mx-auto max-w-[960px]">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 w-24 rounded bg-[var(--color-border-subtle)]" />
+          <div className="h-4 w-48 rounded bg-[var(--color-border-subtle)]" />
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-16 rounded-[var(--radius-lg)] bg-[var(--color-surface-raised)]" />
+            ))}
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-[960px] space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900">已安装</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-xl font-semibold tracking-tight text-[var(--color-text-primary)]">
+            已安装
+          </h1>
+          <p className="mt-1 text-[13px] text-[var(--color-text-secondary)]">
             查看和管理已安装到本机的 skill（共 {installed.length} 个）
           </p>
         </div>
         <button
           onClick={() => refreshMutation.mutate()}
           disabled={refreshMutation.isPending}
-          className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-[6px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
         >
           {refreshMutation.isPending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -134,7 +145,9 @@ export default function InstalledPage() {
       {/* Recent install tasks */}
       {recentTasks.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">最近安装记录</h3>
+          <h3 className="text-[12px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
+            最近安装记录
+          </h3>
           {recentTasks.map((t) => (
             <InstallLogPanel key={t.id} task={t} />
           ))}
@@ -143,17 +156,24 @@ export default function InstalledPage() {
 
       {/* Installed list */}
       {installed.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center">
-          <p className="text-sm text-gray-400">暂无已安装的 skill</p>
-          <button
-            onClick={() => navigate("/")}
-            className="mt-3 text-sm text-brand-600 hover:underline"
-          >
-            去发现页浏览
-          </button>
+        <div className="flex flex-col items-center gap-4 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-default)] p-16 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)]">
+            <Package className="h-5 w-5 text-[var(--color-text-tertiary)]" />
+          </div>
+          <div>
+            <p className="text-[13px] font-medium text-[var(--color-text-secondary)]">
+              暂无已安装的 skill
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="mt-2 text-[12px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
+            >
+              去发现页浏览
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {installed.map((skill) => {
             const cfg = STATUS_CONFIG[skill.status];
             const StatusIcon = cfg.icon;
@@ -164,7 +184,7 @@ export default function InstalledPage() {
             return (
               <div
                 key={skill.id}
-                className="flex items-center gap-4 rounded-lg border border-gray-200 bg-white p-4"
+                className="group flex items-center gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-4 py-3 transition-colors hover:border-[var(--color-border-default)]"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -174,24 +194,24 @@ export default function InstalledPage() {
                           navigate(`/skill/${encodeURIComponent(skill.skillId!)}`);
                         }
                       }}
-                      className="truncate text-sm font-semibold text-gray-900 hover:text-brand-600 hover:underline"
+                      className="truncate text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-accent-text)]"
                     >
                       {skill.name}
                     </button>
                     <span
-                      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs ${cfg.cls}`}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-[1px] text-[11px] ${cfg.cls}`}
                     >
                       <StatusIcon className="h-3 w-3" />
                       {cfg.label}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-text-tertiary)]">
                     <span>{skill.toolName}</span>
-                    <span className="truncate font-mono" title={skillPath}>
+                    <span className="truncate font-mono text-[10px]" title={skillPath}>
                       {skillPath}
                     </span>
                     {skill.sourceId && (
-                      <span className="text-brand-500">{skill.sourceId}</span>
+                      <span className="text-[var(--color-accent)]">{skill.sourceId}</span>
                     )}
                     {skill.installedAt && (
                       <span>
@@ -201,67 +221,63 @@ export default function InstalledPage() {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1">
-                  {/* Open directory */}
+                {/* Actions */}
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     onClick={() => handleOpenDir(skill)}
-                    className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                    className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-secondary)]"
                     title="打开目录"
                   >
-                    <FolderOpen className="h-4 w-4" />
+                    <FolderOpen className="h-3.5 w-3.5" />
                   </button>
 
-                  {/* View source / detail */}
                   {skill.skillId && (
                     <button
                       onClick={() => navigate(`/skill/${encodeURIComponent(skill.skillId!)}`)}
-                      className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-secondary)]"
                       title="查看详情"
                     >
-                      <ExternalLink className="h-4 w-4" />
+                      <ExternalLink className="h-3.5 w-3.5" />
                     </button>
                   )}
 
-                  {/* Check update */}
                   {skill.repoUrl && skill.status !== "missing" && (
                     <button
                       onClick={() => handleCheckUpdate(skill)}
                       disabled={isChecking || isBusy}
-                      className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-green-600 disabled:opacity-50"
+                      className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-success)] disabled:opacity-40"
                       title="检查更新"
                     >
                       {isChecking ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <ArrowUpCircle className="h-4 w-4" />
+                        <ArrowUpCircle className="h-3.5 w-3.5" />
                       )}
                     </button>
                   )}
 
-                  {/* Reinstall */}
                   {skill.repoUrl && (
                     <button
                       onClick={() => setReinstallTarget(skill)}
                       disabled={isBusy}
-                      className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 disabled:opacity-50"
+                      className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-info)] disabled:opacity-40"
                       title="重装"
                     >
                       {isBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <RotateCcw className="h-4 w-4" />
+                        <RotateCcw className="h-3.5 w-3.5" />
                       )}
                     </button>
                   )}
 
-                  {/* Uninstall */}
                   <button
                     onClick={() => handleUninstall(skill)}
                     disabled={isBusy}
-                    className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-600 disabled:opacity-50"
+                    className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-danger)] disabled:opacity-40"
                     title="卸载"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>

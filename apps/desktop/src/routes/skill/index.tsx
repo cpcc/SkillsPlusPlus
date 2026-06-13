@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, GitBranch, Download } from "lucide-react";
+import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSkill } from "../../hooks/use-skills";
 import { useDirectories } from "../../hooks/use-directories";
@@ -20,24 +20,35 @@ export default function SkillDetailPage() {
 
   const [installOpen, setInstallOpen] = useState(false);
 
-  // Find tasks related to this skill
   const relatedTasks = tasks.filter(
     (t) => skill && t.skillName === skill.name,
   );
 
   if (isLoading) {
     return (
-      <div className="mt-20 text-center text-sm text-gray-400">加载中...</div>
+      <div className="mx-auto max-w-[680px]">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 w-16 rounded bg-[var(--color-border-subtle)]" />
+          <div className="h-7 w-48 rounded bg-[var(--color-border-subtle)]" />
+          <div className="h-4 w-32 rounded bg-[var(--color-border-subtle)]" />
+          <div className="h-32 w-full rounded-[var(--radius-lg)] bg-[var(--color-surface-raised)]" />
+        </div>
+      </div>
     );
   }
 
   if (!skill) {
     return (
-      <div className="mt-20 text-center">
-        <p className="text-sm text-gray-400">Skill 不存在或已从缓存中移除</p>
+      <div className="mt-20 flex flex-col items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)]">
+          <Package className="h-5 w-5 text-[var(--color-text-tertiary)]" />
+        </div>
+        <p className="text-[13px] text-[var(--color-text-secondary)]">
+          Skill 不存在或已从缓存中移除
+        </p>
         <button
           onClick={() => navigate(-1)}
-          className="mt-4 text-sm text-brand-600 hover:underline"
+          className="text-[13px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
         >
           返回
         </button>
@@ -46,109 +57,122 @@ export default function SkillDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-[680px]">
+      {/* Back */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+        className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
       >
-        <ArrowLeft className="h-4 w-4" />
+        <ArrowLeft className="h-3.5 w-3.5" />
         返回
       </button>
 
-      <div className="mt-6">
-        <h2 className="text-2xl font-bold text-gray-900">{skill.name}</h2>
+      {/* Header */}
+      <div className="mt-5">
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--color-text-primary)]">
+          {skill.name}
+        </h1>
         {skill.author && (
-          <p className="mt-1 text-sm text-gray-400">by {skill.author}</p>
-        )}
-
-        {skill.description && (
-          <p className="mt-4 text-sm leading-relaxed text-gray-600">
-            {skill.description}
+          <p className="mt-1 text-[12px] text-[var(--color-text-tertiary)]">
+            by {skill.author}
           </p>
         )}
+      </div>
 
-        <div className="mt-6 space-y-4 rounded-lg border border-gray-200 bg-white p-4">
-          <DetailRow label="来源">
-            <span className="text-sm text-gray-600">{skill.sourceId}</span>
+      {/* Description */}
+      {skill.description && (
+        <p className="mt-4 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+          {skill.description}
+        </p>
+      )}
+
+      {/* Meta card */}
+      <div className="mt-6 rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] divide-y divide-[var(--color-border-subtle)]">
+        <DetailRow label="来源">
+          <span className="text-[13px] text-[var(--color-text-secondary)]">
+            {skill.sourceId}
+          </span>
+        </DetailRow>
+
+        {skill.updatedAt && (
+          <DetailRow label="更新时间">
+            <span className="text-[13px] text-[var(--color-text-secondary)]">
+              {new Date(skill.updatedAt).toLocaleDateString("zh-CN")}
+            </span>
           </DetailRow>
+        )}
 
-          {skill.updatedAt && (
-            <DetailRow label="更新时间">
-              <span className="text-sm text-gray-600">
-                {new Date(skill.updatedAt).toLocaleDateString("zh-CN")}
-              </span>
-            </DetailRow>
-          )}
+        {skill.compatibleTools && skill.compatibleTools.length > 0 && (
+          <DetailRow label="兼容工具">
+            <div className="flex flex-wrap gap-1.5">
+              {skill.compatibleTools.map((t) => (
+                <span
+                  key={t}
+                  className="rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent)]"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          </DetailRow>
+        )}
 
-          {skill.compatibleTools && skill.compatibleTools.length > 0 && (
-            <DetailRow label="兼容工具">
-              <div className="flex flex-wrap gap-1">
-                {skill.compatibleTools.map((t) => (
-                  <span
-                    key={t}
-                    className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </DetailRow>
-          )}
-
-          {skill.tags.length > 0 && (
-            <DetailRow label="标签">
-              <div className="flex flex-wrap gap-1">
-                {skill.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </DetailRow>
-          )}
-        </div>
-
-        <div className="mt-6 flex gap-3">
-          {skill.repoUrl && (
-            <button
-              onClick={() => setInstallOpen(true)}
-              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-            >
-              <Download className="h-4 w-4" />
-              安装
-            </button>
-          )}
-          {skill.repoUrl && (
-            <button
-              onClick={() => openUrl(skill.repoUrl!)}
-              className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <GitBranch className="h-4 w-4" />
-              查看仓库
-            </button>
-          )}
-          <button
-            onClick={() => openUrl(skill.detailUrl)}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <ExternalLink className="h-4 w-4" />
-            打开详情
-          </button>
-        </div>
-
-        {/* Install result logs */}
-        {relatedTasks.length > 0 && (
-          <div className="mt-6 space-y-3">
-            <h3 className="text-sm font-medium text-gray-700">安装记录</h3>
-            {relatedTasks.map((t) => (
-              <InstallLogPanel key={t.id} task={t} />
-            ))}
-          </div>
+        {skill.tags.length > 0 && (
+          <DetailRow label="标签">
+            <div className="flex flex-wrap gap-1.5">
+              {skill.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-[var(--color-border-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-text-tertiary)]"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </DetailRow>
         )}
       </div>
+
+      {/* Actions */}
+      <div className="mt-6 flex gap-2.5">
+        {skill.repoUrl && (
+          <button
+            onClick={() => setInstallOpen(true)}
+            className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-accent-muted)] px-4 py-[7px] text-[13px] font-medium text-white transition-colors hover:bg-[var(--color-accent)] active:scale-[0.98]"
+          >
+            <Download className="h-3.5 w-3.5" />
+            安装
+          </button>
+        )}
+        {skill.repoUrl && (
+          <button
+            onClick={() => openUrl(skill.repoUrl!)}
+            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-4 py-[7px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            仓库
+          </button>
+        )}
+        <button
+          onClick={() => openUrl(skill.detailUrl)}
+          className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-4 py-[7px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          详情
+        </button>
+      </div>
+
+      {/* Install logs */}
+      {relatedTasks.length > 0 && (
+        <div className="mt-8 space-y-3">
+          <h3 className="text-[12px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
+            安装记录
+          </h3>
+          {relatedTasks.map((t) => (
+            <InstallLogPanel key={t.id} task={t} />
+          ))}
+        </div>
+      )}
 
       {skill.repoUrl && (
         <InstallDialog
@@ -185,8 +209,8 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-4">
-      <span className="w-20 shrink-0 text-xs font-medium text-gray-400">
+    <div className="flex items-start gap-6 px-5 py-3">
+      <span className="w-20 shrink-0 text-[12px] font-medium text-[var(--color-text-tertiary)]">
         {label}
       </span>
       <div className="flex-1">{children}</div>

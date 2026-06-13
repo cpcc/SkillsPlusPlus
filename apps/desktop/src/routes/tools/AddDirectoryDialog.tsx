@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
-import { X } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 
 const TOOL_NAMES = [
   "Codex",
@@ -23,6 +23,12 @@ interface Props {
   isPending: boolean;
 }
 
+const inputCls =
+  "w-full rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-2 text-[13px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] transition-colors focus:border-[var(--color-accent)] focus:outline-none";
+
+const selectCls =
+  "w-full appearance-none rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-2 pr-8 text-[13px] text-[var(--color-text-primary)] transition-colors focus:border-[var(--color-accent)] focus:outline-none cursor-pointer";
+
 export function AddDirectoryDialog({
   open,
   onOpenChange,
@@ -43,45 +49,48 @@ export function AddDirectoryDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl">
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] border border-[var(--color-border-default)] bg-[var(--color-surface-overlay)] p-6 shadow-2xl shadow-black/30">
           <div className="flex items-center justify-between">
-            <Dialog.Title className="text-base font-semibold text-gray-900">
+            <Dialog.Title className="text-[15px] font-semibold text-[var(--color-text-primary)]">
               新增目录
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button className="rounded p-1 text-gray-400 hover:bg-gray-100">
+              <button className="rounded-[var(--radius-sm)] p-1 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-secondary)]">
                 <X className="h-4 w-4" />
               </button>
             </Dialog.Close>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                 AI 工具
               </label>
-              <select
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                value={toolName}
-                onChange={(e) => setToolName(e.target.value)}
-              >
-                {TOOL_NAMES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  className={selectCls}
+                  value={toolName}
+                  onChange={(e) => setToolName(e.target.value)}
+                >
+                  {TOOL_NAMES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+              </div>
             </div>
 
             {toolName === "其他" && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                   工具名称
                 </label>
                 <input
                   type="text"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className={inputCls}
                   placeholder="例如：MyCopilot"
                   value={customTool}
                   onChange={(e) => setCustomTool(e.target.value)}
@@ -91,12 +100,12 @@ export function AddDirectoryDialog({
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                 目录路径
               </label>
               <input
                 type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className={`${inputCls} font-mono text-[12px]`}
                 placeholder="例如：/Users/you/.mytool/skills"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
@@ -104,11 +113,11 @@ export function AddDirectoryDialog({
               />
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-2.5 pt-2">
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-4 py-[7px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
                 >
                   取消
                 </button>
@@ -116,7 +125,7 @@ export function AddDirectoryDialog({
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                className="rounded-[var(--radius-md)] bg-[var(--color-accent-muted)] px-4 py-[7px] text-[13px] font-medium text-white transition-colors hover:bg-[var(--color-accent)] disabled:opacity-40 active:scale-[0.98]"
               >
                 {isPending ? "添加中..." : "添加"}
               </button>
