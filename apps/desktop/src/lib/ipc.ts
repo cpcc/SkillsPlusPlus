@@ -1,52 +1,86 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
   InstallTaskResult, InstallPreview, InstalledSkill,
 } from "@skills-pp/shared";
 
+/**
+ * Base URL of the embedded HTTP bridge (see src-tauri/src/services/http_bridge.rs).
+ * Only used when running outside of Tauri (i.e. a plain browser tab pointing at
+ * the Vite dev server). Override with `VITE_DEV_HTTP` if needed.
+ */
+const HTTP_BASE = import.meta.env.VITE_DEV_HTTP ?? "http://127.0.0.1:3030";
+
+/**
+ * Invoke a backend command. Uses the native Tauri IPC when running inside the
+ * Tauri WebView, and falls back to the HTTP bridge (`POST /invoke/:cmd`) when
+ * running in a normal browser. Both paths hit the exact same Rust code, so
+ * there is no mocking — browser tabs see real data.
+ *
+ * Tauri's `invoke` expects camelCase arg keys; we forward the same object to
+ * the HTTP bridge, which converts keys to snake_case before deserializing.
+ */
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const hasArgs = args && Object.keys(args).length > 0;
+  if (isTauri()) {
+    return hasArgs ? invoke<T>(cmd, args) : invoke<T>(cmd);
+  }
+  const r = await fetch(`${HTTP_BASE}/invoke/${cmd}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: hasArgs ? JSON.stringify(args) : "{}",
+  });
+  if (!r.ok) {
+    let detail = "";
+    try { detail = await r.text(); } catch { /* ignore */ }
+    throw new Error(`${cmd} failed (${r.status}): ${detail}`);
+  }
+  return r.json() as Promise<T>;
+}
+
 export const ipc = {
   // App
-  getAppInfo: (): Promise<AppInfo> => invoke("get_app_info"),
+  getAppInfo: (): Promise<AppInfo> => call("get_app_info"),
 
   // Directories
-  scanDirectories: (): Promise<AiToolDirectory[]> => invoke("scan_directories"),
-  listDirectories: (): Promise<AiToolDirectory[]> => invoke("list_directories"),
+  scanDirectories: (): Promise<AiToolDirectory[]> => call("scan_directories"),
+  listDirectories: (): Promise<AiToolDirectory[]> => call("list_directories"),
   addDirectory: (toolName: string, path: string): Promise<AiToolDirectory> =>
-    invoke("add_directory", { toolName, path }),
+    call("add_directory", { toolName, path }),
   toggleDirectory: (id: string, enabled: boolean): Promise<void> =>
-    invoke("toggle_directory", { id, enabled }),
+    call("toggle_directory", { id, enabled }),
   setDefaultDirectory: (id: string): Promise<void> =>
-    invoke("set_default_directory", { id }),
+    call("set_default_directory", { id }),
   deleteDirectory: (id: string): Promise<void> =>
-    invoke("delete_directory", { id }),
+    call("delete_directory", { id }),
 
   // Sources
-  listSources: (): Promise<SkillSource[]> => invoke("list_sources"),
+  listSources: (): Promise<SkillSource[]> => call("list_sources"),
   toggleSource: (id: string, enabled: boolean): Promise<void> =>
-    invoke("toggle_source", { id, enabled }),
+    call("toggle_source", { id, enabled }),
 
   // Skills (discovery)
-  listSkills: (): Promise<SkillItem[]> => invoke("list_skills"),
+  listSkills: (): Promise<SkillItem[]> => call("list_skills"),
   refreshSource: (sourceId: string): Promise<SkillItem[]> =>
-    invoke("refresh_source", { sourceId }),
-  refreshAllSources: (): Promise<SkillItem[]> => invoke("refresh_all_sources"),
-  getSkill: (id: string): Promise<SkillItem | null> => invoke("get_skill", { id }),
+    call("refresh_source", { sourceId }),
+  refreshAllSources: (): Promise<SkillItem[]> => call("refresh_all_sources"),
+  getSkill: (id: string): Promise<SkillItem | null> => call("get_skill", { id }),
 
   // Install
   previewInstall: (skillName: string, repoUrl: string, directoryId: string): Promise<InstallPreview> =>
-    invoke("preview_install", { skillName, repoUrl, directoryId }),
+    call("preview_install", { skillName, repoUrl, directoryId }),
   installSkill: (params: {
     skillId?: string; skillName: string; repoUrl: string;
     directoryId: string; overwrite: boolean;
-  }): Promise<InstallTaskResult> => invoke("install_skill", params),
+  }): Promise<InstallTaskResult> => call("install_skill", params),
   reinstallSkill: (params: {
     skillId?: string; skillName: string; repoUrl: string; directoryId: string;
-  }): Promise<InstallTaskResult> => invoke("reinstall_skill", params),
+  }): Promise<InstallTaskResult> => call("reinstall_skill", params),
   uninstallSkill: (skillName: string, directoryId: string): Promise<InstallTaskResult> =>
-    invoke("uninstall_skill", { skillName, directoryId }),
-  listInstalledSkills: (): Promise<InstalledSkill[]> => invoke("list_installed_skills"),
-  listInstallTasks: (): Promise<InstallTaskResult[]> => invoke("list_install_tasks"),
-  checkGitAvailable: (): Promise<boolean> => invoke("check_git_available"),
-  refreshInstalledSkills: (): Promise<InstalledSkill[]> => invoke("refresh_installed_skills"),
-  checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => invoke("check_skill_update", { skillId }),
+    call("uninstall_skill", { skillName, directoryId }),
+  listInstalledSkills: (): Promise<InstalledSkill[]> => call("list_installed_skills"),
+  listInstallTasks: (): Promise<InstallTaskResult[]> => call("list_install_tasks"),
+  checkGitAvailable: (): Promise<boolean> => call("check_git_available"),
+  refreshInstalledSkills: (): Promise<InstalledSkill[]> => call("refresh_installed_skills"),
+  checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => call("check_skill_update", { skillId }),
 };

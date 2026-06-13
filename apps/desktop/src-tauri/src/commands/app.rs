@@ -1,9 +1,27 @@
 use crate::models::AppInfo;
 use rusqlite::Connection;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
-pub struct DbState(pub Mutex<Connection>);
+pub struct DbState(pub Arc<Mutex<Connection>>);
+
+pub fn get_app_info_inner(
+    conn: &Connection,
+    version: String,
+    db_path: String,
+) -> Result<AppInfo, String> {
+    // verify DB is accessible
+    let _: i64 = conn
+        .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    Ok(AppInfo {
+        version,
+        db_path,
+        log_path: String::from("(see app data dir)"),
+        platform: std::env::consts::OS.to_string(),
+    })
+}
 
 #[tauri::command]
 pub fn get_app_info(app: tauri::AppHandle, db: State<DbState>) -> Result<AppInfo, String> {
@@ -15,17 +33,6 @@ pub fn get_app_info(app: tauri::AppHandle, db: State<DbState>) -> Result<AppInfo
         .join("skills_pp.db")
         .to_string_lossy()
         .to_string();
-
-    // verify DB is accessible
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let _: i64 = conn
-        .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
-        .unwrap_or(0);
-
-    Ok(AppInfo {
-        version,
-        db_path,
-        log_path: String::from("(see app data dir)"),
-        platform: std::env::consts::OS.to_string(),
-    })
+    get_app_info_inner(&conn, version, db_path)
 }

@@ -28,5 +28,7 @@ dirs = "5"
 log = "0.4"
 uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
 
