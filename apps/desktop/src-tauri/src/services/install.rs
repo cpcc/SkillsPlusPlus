@@ -1,6 +1,7 @@
 use crate::models::{ConflictInfo, InstallPreview, InstalledSkillRow};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
@@ -147,8 +148,12 @@ pub fn remove_installed_skill(conn: &Connection, skill_name: &str, directory_id:
 
 pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSkillRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, skill_id, name, tool_name, directory_id, source_id, repo_url, installed_at, status \
-         FROM installed_skills ORDER BY installed_at DESC",
+        "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
+                COALESCE(d.path, '') as directory_path, \
+                i.source_id, i.repo_url, i.installed_at, i.status \
+         FROM installed_skills i \
+         LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
+         ORDER BY i.installed_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(InstalledSkillRow {
@@ -157,10 +162,11 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
             name: row.get(2)?,
             tool_name: row.get(3)?,
             directory_id: row.get(4)?,
-            source_id: row.get(5)?,
-            repo_url: row.get(6)?,
-            installed_at: row.get(7)?,
-            status: row.get(8)?,
+            directory_path: row.get(5)?,
+            source_id: row.get(6)?,
+            repo_url: row.get(7)?,
+            installed_at: row.get(8)?,
+            status: row.get(9)?,
         })
     })?;
     rows.collect()
@@ -181,4 +187,167 @@ pub fn list_install_tasks(conn: &Connection, limit: i64) -> SqliteResult<Vec<(St
         ))
     })?;
     rows.collect()
+}
+
+// ─── Status refresh ──────────────────────────────────────────────────────────
+
+/// Compute real status for an installed skill by checking the filesystem.
+/// Returns "ok", "missing", or "changed".
+fn compute_skill_status(skill_name: &str, directory_path: &str) -> &'static str {
+    if directory_path.is_empty() {
+        return "missing";
+    }
+    let target = target_path(directory_path, skill_name);
+    if !target.exists() || !target.is_dir() {
+        return "missing";
+    }
+    // Check if directory is non-empty
+    let has_content = std::fs::read_dir(&target)
+        .map(|mut d| d.next().is_some())
+        .unwrap_or(false);
+    if !has_content {
+        return "changed";
+    }
+    "ok"
+}
+
+/// Refresh status of all installed skills by scanning filesystem, then update DB.
+/// Returns the updated list.
+pub fn refresh_installed_status(conn: &Connection) -> SqliteResult<Vec<InstalledSkillRow>> {
+    // Load all installed skills with directory paths
+    let mut skills = list_installed_skills(conn)?;
+    for skill in &mut skills {
+        let real_status = compute_skill_status(&skill.name, &skill.directory_path);
+        if real_status != skill.status {
+            // Update DB
+            conn.execute(
+                "UPDATE installed_skills SET status = ?1 WHERE id = ?2",
+                params![real_status, skill.id],
+            )?;
+            skill.status = real_status.to_string();
+        }
+    }
+    Ok(skills)
+}
+
+// ─── Check update ────────────────────────────────────────────────────────────
+
+/// Check if a skill's git repo has updates available.
+/// Returns true if remote has newer commits than local.
+pub fn check_update_available(skill_dir: &Path) -> Result<bool, String> {
+    if !skill_dir.join(".git").exists() {
+        return Ok(false); // Not a git repo, can't check
+    }
+
+    // Fetch remote
+    let fetch_output = std::process::Command::new("git")
+        .args(["fetch", "origin", "--dry-run"])
+        .current_dir(skill_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git fetch: {e}"))?;
+
+    if !fetch_output.status.success() {
+        return Err(
+            String::from_utf8_lossy(&fetch_output.stderr)
+                .lines()
+                .last()
+                .unwrap_or("git fetch failed")
+                .to_string(),
+        );
+    }
+
+    // Compare local HEAD with remote origin/HEAD
+    let status_output = std::process::Command::new("git")
+        .args(["status", "-uno", "--porcelain"])
+        .current_dir(skill_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git status: {e}"))?;
+
+    let status_text = String::from_utf8_lossy(&status_output.stdout);
+    let has_behind = status_text.contains("behind");
+
+    // Also check rev-list count
+    let rev_output = std::process::Command::new("git")
+        .args(["rev-list", "--count", "HEAD..origin/HEAD"])
+        .current_dir(skill_dir)
+        .output();
+
+    match rev_output {
+        Ok(out) if out.status.success() => {
+            let count_str = String::from_utf8_lossy(&out.stdout);
+            let count: u32 = count_str.trim().parse().unwrap_or(0);
+            Ok(count > 0 || has_behind)
+        }
+        _ => Ok(has_behind),
+    }
+}
+
+/// Update a single installed skill's status in DB and return the updated row.
+pub fn refresh_single_skill_status(
+    conn: &Connection,
+    skill_id: &str,
+) -> SqliteResult<Option<InstalledSkillRow>> {
+    // Get skill info
+    let skill = conn.query_row(
+        "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
+                COALESCE(d.path, ''), i.source_id, i.repo_url, i.installed_at, i.status \
+         FROM installed_skills i \
+         LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
+         WHERE i.id = ?1",
+        params![skill_id],
+        |row| {
+            Ok(InstalledSkillRow {
+                id: row.get(0)?,
+                skill_id: row.get(1)?,
+                name: row.get(2)?,
+                tool_name: row.get(3)?,
+                directory_id: row.get(4)?,
+                directory_path: row.get(5)?,
+                source_id: row.get(6)?,
+                repo_url: row.get(7)?,
+                installed_at: row.get(8)?,
+                status: row.get(9)?,
+            })
+        },
+    );
+
+    match skill {
+        Ok(mut s) => {
+            let mut new_status = compute_skill_status(&s.name, &s.directory_path).to_string();
+
+            // If ok and has repo_url, also check for updates
+            if new_status == "ok" {
+                if let Some(ref repo_url) = s.repo_url {
+                    if !repo_url.is_empty() {
+                        let target = target_path(&s.directory_path, &s.name);
+                        if let Ok(has_update) = check_update_available(&target) {
+                            if has_update {
+                                new_status = "update_available".to_string();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if new_status != s.status {
+                conn.execute(
+                    "UPDATE installed_skills SET status = ?1 WHERE id = ?2",
+                    params![new_status, s.id],
+                )?;
+                s.status = new_status;
+            }
+            Ok(Some(s))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Get a stable timestamp string for log lines.
+pub fn _now_ts() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("[{secs}]")
 }

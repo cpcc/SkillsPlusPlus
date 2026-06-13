@@ -40,6 +40,7 @@ export type InstalledSkill = {
   name: string;
   toolName: string;
   directoryId: string;
+  directoryPath: string;
   sourceId?: string;
   repoUrl?: string;
   installedAt: string;

@@ -47,4 +47,6 @@ export const ipc = {
   listInstalledSkills: (): Promise<InstalledSkill[]> => invoke("list_installed_skills"),
   listInstallTasks: (): Promise<InstallTaskResult[]> => invoke("list_install_tasks"),
   checkGitAvailable: (): Promise<boolean> => invoke("check_git_available"),
+  refreshInstalledSkills: (): Promise<InstalledSkill[]> => invoke("refresh_installed_skills"),
+  checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => invoke("check_skill_update", { skillId }),
 };

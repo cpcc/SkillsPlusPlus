@@ -89,6 +89,7 @@ pub struct InstalledSkillRow {
     pub name: String,
     pub tool_name: String,
     pub directory_id: String,
+    pub directory_path: String,
     pub source_id: Option<String>,
     pub repo_url: Option<String>,
     pub installed_at: String,

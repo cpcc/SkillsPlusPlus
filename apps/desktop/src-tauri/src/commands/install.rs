@@ -2,7 +2,6 @@ use crate::commands::app::DbState;
 use crate::models::{InstallPreview, InstallTaskRow, InstalledSkillRow};
 use crate::services::install as svc;
 use rusqlite::params;
-use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
 
@@ -204,11 +203,30 @@ pub fn uninstall_skill(
     })
 }
 
-/// List all installed skills.
+/// List all installed skills (with real-time filesystem status check).
 #[tauri::command]
 pub fn list_installed_skills(db: State<DbState>) -> Result<Vec<InstalledSkillRow>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    svc::list_installed_skills(&conn).map_err(|e| e.to_string())
+    svc::refresh_installed_status(&conn).map_err(|e| e.to_string())
+}
+
+/// Refresh all installed skills status by scanning filesystem.
+#[tauri::command]
+pub fn refresh_installed_skills(db: State<DbState>) -> Result<Vec<InstalledSkillRow>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    svc::refresh_installed_status(&conn).map_err(|e| e.to_string())
+}
+
+/// Check for updates on a single installed skill and update its status.
+#[tauri::command]
+pub fn check_skill_update(
+    db: State<DbState>,
+    skill_id: String,
+) -> Result<InstalledSkillRow, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    svc::refresh_single_skill_status(&conn, &skill_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Skill not found".to_string())
 }
 
 /// List recent install tasks (last 50).
@@ -239,15 +257,4 @@ pub fn check_git_available() -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
-}
-
-// Helper used by reinstall to resolve directory path
-fn _dir_path_for_id(conn: &rusqlite::Connection, directory_id: &str) -> Result<PathBuf, String> {
-    conn.query_row(
-        "SELECT path FROM ai_tool_directories WHERE id = ?1",
-        params![directory_id],
-        |row| row.get::<_, String>(0),
-    )
-    .map(PathBuf::from)
-    .map_err(|e| e.to_string())
 }

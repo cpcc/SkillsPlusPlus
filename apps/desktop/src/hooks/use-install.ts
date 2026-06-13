@@ -12,6 +12,26 @@ export function useInstalledSkills() {
   });
 }
 
+export function useRefreshInstalledSkills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => ipc.refreshInstalledSkills(),
+    onSuccess: (data) => {
+      qc.setQueryData(INSTALLED_KEY, data);
+    },
+  });
+}
+
+export function useCheckSkillUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (skillId: string) => ipc.checkSkillUpdate(skillId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: INSTALLED_KEY });
+    },
+  });
+}
+
 export function useInstallTasks() {
   return useQuery({
     queryKey: TASKS_KEY,

@@ -8,6 +8,9 @@ import {
   CheckCircle,
   HelpCircle,
   Loader2,
+  RefreshCw,
+  ArrowUpCircle,
+  ExternalLink,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -15,6 +18,8 @@ import {
   useInstallTasks,
   useUninstallSkill,
   useReinstallSkill,
+  useRefreshInstalledSkills,
+  useCheckSkillUpdate,
 } from "../../hooks/use-install";
 import { useDirectories } from "../../hooks/use-directories";
 import { InstallDialog } from "../../components/install/InstallDialog";
@@ -25,7 +30,7 @@ const STATUS_CONFIG = {
   ok: { icon: CheckCircle, label: "正常", cls: "text-green-600 bg-green-50" },
   missing: { icon: AlertCircle, label: "缺失", cls: "text-red-600 bg-red-50" },
   changed: { icon: HelpCircle, label: "已变更", cls: "text-yellow-600 bg-yellow-50" },
-  update_available: { icon: RotateCcw, label: "有更新", cls: "text-blue-600 bg-blue-50" },
+  update_available: { icon: ArrowUpCircle, label: "有更新", cls: "text-blue-600 bg-blue-50" },
 } as const;
 
 export default function InstalledPage() {
@@ -36,9 +41,12 @@ export default function InstalledPage() {
 
   const uninstallMutation = useUninstallSkill();
   const reinstallMutation = useReinstallSkill();
+  const refreshMutation = useRefreshInstalledSkills();
+  const checkUpdateMutation = useCheckSkillUpdate();
 
   const [reinstallTarget, setReinstallTarget] = useState<InstalledSkill | null>(null);
   const [actionPendingId, setActionPendingId] = useState<string | null>(null);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   function handleUninstall(skill: InstalledSkill) {
     if (!confirm(`确认卸载「${skill.name}」？这将删除本地目录中的相关文件。`)) return;
@@ -68,8 +76,31 @@ export default function InstalledPage() {
     );
   }
 
+  function handleCheckUpdate(skill: InstalledSkill) {
+    setCheckingId(skill.id);
+    checkUpdateMutation.mutate(skill.id, {
+      onSettled: () => setCheckingId(null),
+    });
+  }
+
+  function handleOpenDir(skill: InstalledSkill) {
+    // Build the actual skill directory path
+    const skillPath = skill.directoryPath
+      ? `${skill.directoryPath}/${skill.name}`
+      : skill.directoryId;
+    openUrl(`file://${skillPath}`);
+  }
+
   // Recent tasks (latest 5)
   const recentTasks = tasks.slice(0, 5);
+
+  // Compute skill full path for display
+  function getSkillPath(skill: InstalledSkill): string {
+    if (skill.directoryPath) {
+      return `${skill.directoryPath}/${skill.name}`;
+    }
+    return skill.directoryId;
+  }
 
   if (isLoading) {
     return (
@@ -79,11 +110,25 @@ export default function InstalledPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">已安装</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          查看和管理已安装到本机的 skill（共 {installed.length} 个）
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">已安装</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            查看和管理已安装到本机的 skill（共 {installed.length} 个）
+          </p>
+        </div>
+        <button
+          onClick={() => refreshMutation.mutate()}
+          disabled={refreshMutation.isPending}
+          className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {refreshMutation.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          刷新状态
+        </button>
       </div>
 
       {/* Recent install tasks */}
@@ -113,6 +158,8 @@ export default function InstalledPage() {
             const cfg = STATUS_CONFIG[skill.status];
             const StatusIcon = cfg.icon;
             const isBusy = actionPendingId === skill.id;
+            const isChecking = checkingId === skill.id;
+            const skillPath = getSkillPath(skill);
 
             return (
               <div
@@ -121,40 +168,75 @@ export default function InstalledPage() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-gray-900">
+                    <button
+                      onClick={() => {
+                        if (skill.skillId) {
+                          navigate(`/skill/${encodeURIComponent(skill.skillId!)}`);
+                        }
+                      }}
+                      className="truncate text-sm font-semibold text-gray-900 hover:text-brand-600 hover:underline"
+                    >
                       {skill.name}
-                    </span>
+                    </button>
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${cfg.cls}`}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs ${cfg.cls}`}
                     >
                       <StatusIcon className="h-3 w-3" />
                       {cfg.label}
                     </span>
                   </div>
-                  <div className="mt-1 flex items-center gap-3 text-xs text-gray-400">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400">
                     <span>{skill.toolName}</span>
-                    <span>·</span>
-                    <span className="truncate">{skill.directoryId}</span>
+                    <span className="truncate font-mono" title={skillPath}>
+                      {skillPath}
+                    </span>
+                    {skill.sourceId && (
+                      <span className="text-brand-500">{skill.sourceId}</span>
+                    )}
                     {skill.installedAt && (
-                      <>
-                        <span>·</span>
-                        <span>
-                          {new Date(skill.installedAt).toLocaleDateString("zh-CN")}
-                        </span>
-                      </>
+                      <span>
+                        {new Date(skill.installedAt).toLocaleDateString("zh-CN")}
+                      </span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1">
                   {/* Open directory */}
                   <button
-                    onClick={() => openUrl(`file://${skill.directoryId}`)}
+                    onClick={() => handleOpenDir(skill)}
                     className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                     title="打开目录"
                   >
                     <FolderOpen className="h-4 w-4" />
                   </button>
+
+                  {/* View source / detail */}
+                  {skill.skillId && (
+                    <button
+                      onClick={() => navigate(`/skill/${encodeURIComponent(skill.skillId!)}`)}
+                      className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      title="查看详情"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {/* Check update */}
+                  {skill.repoUrl && skill.status !== "missing" && (
+                    <button
+                      onClick={() => handleCheckUpdate(skill)}
+                      disabled={isChecking || isBusy}
+                      className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-green-600 disabled:opacity-50"
+                      title="检查更新"
+                    >
+                      {isChecking ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUpCircle className="h-4 w-4" />
+                      )}
+                    </button>
+                  )}
 
                   {/* Reinstall */}
                   {skill.repoUrl && (
