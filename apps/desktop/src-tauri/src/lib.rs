@@ -46,6 +46,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
+            commands::app::check_app_update,
+            commands::app::open_release_url,
             commands::directory::scan_directories,
             commands::directory::list_directories,
             commands::directory::add_directory,

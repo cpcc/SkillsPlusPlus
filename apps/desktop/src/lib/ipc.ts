@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
   InstallTaskResult, InstallPreview, InstalledSkill,
-  InstallStrategy, LockEntry, CanonicalSkill,
+  InstallStrategy, LockEntry, CanonicalSkill, UpdateInfo,
 } from "@skills-pp/shared";
 
 /**
@@ -42,6 +42,18 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 export const ipc = {
   // App
   getAppInfo: (): Promise<AppInfo> => call("get_app_info"),
+  checkAppUpdate: (): Promise<UpdateInfo> => call("check_app_update"),
+  /**
+   * 在系统浏览器打开 release 页面。
+   * Tauri 模式下走 `open_release_url` 命令；浏览器调试模式下直接 window.open。
+   */
+  openReleaseUrl: async (url: string): Promise<void> => {
+    if (isTauri()) {
+      await call("open_release_url", { url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  },
 
   // Directories
   scanDirectories: (): Promise<AiToolDirectory[]> => call("scan_directories"),

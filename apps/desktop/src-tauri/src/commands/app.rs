@@ -1,7 +1,10 @@
-use crate::models::AppInfo;
+use crate::models::{AppInfo, UpdateInfo};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
+
+/// GitHub Releases latest 接口。修改时同步 release.yml 与 git remote。
+const RELEASES_API: &str = "https://api.github.com/repos/cpcc/SkillsPlusPlus/releases/latest";
 
 pub struct DbState(pub Arc<Mutex<Connection>>);
 
@@ -35,4 +38,75 @@ pub fn get_app_info(app: tauri::AppHandle, db: State<DbState>) -> Result<AppInfo
         .to_string();
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     get_app_info_inner(&conn, version, db_path)
+}
+
+/// 将 "0.1.2" 解析为 (0, 1, 2)；非法片段视为 0。
+fn parse_version(s: &str) -> (u32, u32, u32) {
+    let s = s.trim().trim_start_matches('v').trim();
+    let mut it = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+    )
+}
+
+/// 调用 GitHub Releases `/releases/latest`，与当前版本比较，返回更新信息。
+///
+/// 失败（网络错误、4xx/5xx、JSON 解析失败）会向上抛出字符串错误，前端静默回退到
+/// "无更新"显示，避免在版本号位置弹出红色错误。
+#[tauri::command]
+pub async fn check_app_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let current = app.package_info().version.to_string();
+    check_app_update_inner(current).await
+}
+
+/// 内部实现（与 Tauri `AppHandle` 解耦），http_bridge 复用。
+pub async fn check_app_update_inner(current_version: String) -> Result<UpdateInfo, String> {
+    let resp: serde_json::Value = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(RELEASES_API)
+        // GitHub REST API 强制要求 User-Agent
+        .header("User-Agent", format!("SkillsPlusPlus/{}", current_version))
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let tag = resp["tag_name"].as_str().unwrap_or("").trim();
+    let latest = tag.trim_start_matches('v').to_string();
+    let release_url = resp["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/cpcc/SkillsPlusPlus/releases")
+        .to_string();
+    let release_notes = resp["body"].as_str().unwrap_or("").to_string();
+    let published_at = resp["published_at"].as_str().unwrap_or("").to_string();
+
+    let has_update = parse_version(&latest) > parse_version(&current_version);
+
+    Ok(UpdateInfo {
+        has_update,
+        current_version: current_version,
+        latest_version: latest,
+        release_url,
+        release_notes,
+        published_at,
+    })
+}
+
+/// 通过 tauri-plugin-opener 在系统浏览器打开 release 页面。
+/// URL 不受 `opener:allow-open-path` scope 限制，默认即允许。
+#[tauri::command]
+pub fn open_release_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }

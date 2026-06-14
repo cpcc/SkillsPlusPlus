@@ -167,6 +167,10 @@ async fn invoke_handler(
         "get_app_info" => with_conn(&st, |c| {
             app_cmd::get_app_info_inner(c, st.version.clone(), st.db_path.clone())
         }),
+        "check_app_update" => {
+            let v = st.version.clone();
+            app_cmd::check_app_update_inner(v).await.map(to_json)
+        }
 
         // ── Directories ────────────────────────────────────────────────
         "scan_directories" => with_conn(&st, dir_cmd::scan_directories_inner),

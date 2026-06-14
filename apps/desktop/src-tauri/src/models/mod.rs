@@ -138,6 +138,18 @@ pub struct ConflictInfo {
     pub kind: String, // "existing_dir" | "existing_file"
 }
 
+/// 应用更新检查结果（GitHub Releases latest）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_url: String,
+    pub release_notes: String,
+    pub published_at: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledSkillRow {

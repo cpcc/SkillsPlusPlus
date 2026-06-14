@@ -1,6 +1,9 @@
 import { useAppInfo } from "../../hooks/use-app-info";
 import { useTheme, type ThemePreference } from "../../hooks/use-theme";
-import { Info, Database, Monitor, SunMoon } from "lucide-react";
+import { useUpdateCheck } from "../../hooks/use-update-check";
+import { useToast } from "../../components/ui/toast";
+import { ipc } from "../../lib/ipc";
+import { Info, Database, Monitor, SunMoon, RefreshCw, Download } from "lucide-react";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "light", label: "浅色" },
@@ -11,6 +14,27 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 export default function SettingsPage() {
   const { data, isLoading, error } = useAppInfo();
   const { preference, setPreference } = useTheme();
+  const updateQuery = useUpdateCheck();
+  const toast = useToast();
+
+  const handleCheckUpdate = async () => {
+    try {
+      const info = await updateQuery.refetch();
+      const data = info.data;
+      if (data?.hasUpdate) {
+        toast(`发现新版本 v${data.latestVersion}`, "点击下方按钮前往 GitHub 下载");
+      } else if (data) {
+        toast("已是最新版本", `v${data.currentVersion}`);
+      }
+    } catch (e) {
+      toast("检查更新失败", String(e), "error");
+    }
+  };
+
+  const handleDownload = (url: string, version: string) => {
+    ipc.openReleaseUrl(url);
+    toast(`正在打开 GitHub Release 页面`, `v${version}`);
+  };
 
   return (
     <div className="mx-auto max-w-[680px]">
@@ -83,6 +107,49 @@ export default function SettingsPage() {
                 <span className="text-[13px] text-[var(--color-text-secondary)]">
                   {data.version}
                 </span>
+              </InfoRow>
+              <InfoRow icon={RefreshCw} label="更新">
+                <div className="flex items-center gap-3">
+                  {updateQuery.data?.hasUpdate ? (
+                    <>
+                      <span className="text-[13px] text-[var(--color-accent-text)]">
+                        发现新版本 v{updateQuery.data.latestVersion}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDownload(
+                            updateQuery.data!.releaseUrl,
+                            updateQuery.data!.latestVersion,
+                          )
+                        }
+                        className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                      >
+                        <Download className="h-3 w-3" />
+                        前往下载
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[13px] text-[var(--color-text-secondary)]">
+                      {updateQuery.isLoading
+                        ? "正在检查…"
+                        : updateQuery.error
+                          ? "检查失败"
+                          : "已是最新版"}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCheckUpdate}
+                    disabled={updateQuery.isFetching}
+                    className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3 w-3 ${updateQuery.isFetching ? "animate-spin" : ""}`}
+                    />
+                    检查更新
+                  </button>
+                </div>
               </InfoRow>
               <InfoRow icon={Monitor} label="平台">
                 <span className="text-[13px] text-[var(--color-text-secondary)]">
