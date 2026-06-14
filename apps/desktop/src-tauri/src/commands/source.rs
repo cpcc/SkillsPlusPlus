@@ -248,3 +248,18 @@ pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, St
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     get_skill_inner(&conn, id)
 }
+
+// ─── Online fallback search (skills.sh /api/search) ────────────────────────
+
+/// 调 skills.sh 在线搜索，本地缓存为空时的兜底。
+pub async fn search_online_inner(
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<SkillItem>, String> {
+    crate::services::adapters::skills_sh_search::search(&query, limit).await
+}
+
+#[tauri::command]
+pub async fn search_online(query: String, limit: Option<u32>) -> Result<Vec<SkillItem>, String> {
+    search_online_inner(query, limit).await
+}

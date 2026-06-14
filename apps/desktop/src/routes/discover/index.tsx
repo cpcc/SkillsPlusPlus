@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Search, Sparkles } from "lucide-react";
 import type { SkillItem } from "@skills-pp/shared";
-import { useSkills, useRefreshAllSources } from "../../hooks/use-skills";
-import { useSources } from "../../hooks/use-sources";
+import {
+  useSkills,
+  useRefreshAllSources,
+  useOnlineSearch,
+} from "../../hooks/use-skills";
 import { SkillCard } from "./SkillCard";
 import { FilterBar } from "./FilterBar";
 import { useToast } from "../../components/ui/toast";
+
+const PAGE = 24;
 
 function useUniqueTools(skills: SkillItem[]) {
   return useMemo(() => {
@@ -15,15 +20,51 @@ function useUniqueTools(skills: SkillItem[]) {
   }, [skills]);
 }
 
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/** Infinite-scroll hook: slices `items` into pages, returns visible slice + sentinel ref. */
+function useInfiniteScroll<T>(items: T[], resetKey: string) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(PAGE);
+
+  useEffect(() => {
+    setVisible(PAGE);
+  }, [resetKey]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible((v) => Math.min(v + PAGE, items.length));
+      }
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [items.length, visible]);
+
+  return {
+    slice: items.slice(0, visible),
+    sentinelRef,
+    hasMore: visible < items.length,
+  };
+}
+
 export default function DiscoverPage() {
   const { data: skills = [], isLoading } = useSkills();
-  const { data: sources = [] } = useSources();
   const refresh = useRefreshAllSources();
   const toast = useToast();
 
   const [query, setQuery] = useState("");
-  const [selectedSource, setSelectedSource] = useState("");
   const [selectedTool, setSelectedTool] = useState("");
+  const debouncedQuery = useDebounced(query, 300);
 
   const allTools = useUniqueTools(skills);
 
@@ -37,10 +78,11 @@ export default function DiscoverPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 
+  // 硬过滤：Discover 页只展示 skills.sh 来源
   const filtered = useMemo(() => {
-    const q = query.toLowerCase();
+    const q = debouncedQuery.toLowerCase();
     return skills.filter((s) => {
-      if (selectedSource && s.sourceId !== selectedSource) return false;
+      if (s.sourceId !== "skills_sh") return false;
       if (selectedTool && !s.compatibleTools?.includes(selectedTool)) return false;
       if (q) {
         return (
@@ -52,7 +94,31 @@ export default function DiscoverPage() {
       }
       return true;
     });
-  }, [skills, query, selectedSource, selectedTool]);
+  }, [skills, debouncedQuery, selectedTool]);
+
+  // 在线搜索：查询长度 >= 2 时始终与本地并行搜索
+  const enableOnline = debouncedQuery.trim().length >= 2;
+  const onlineQuery = useOnlineSearch(debouncedQuery, enableOnline);
+  const rawOnline: SkillItem[] = enableOnline ? (onlineQuery.data ?? []) : [];
+
+  // 在线结果去重：排除本地已有的 skill（按 repoUrl + name 判定）
+  const onlineResults = useMemo(() => {
+    if (rawOnline.length === 0) return [];
+    const localKeys = new Set(filtered.map((s) => `${s.repoUrl ?? ""}|${s.name}`));
+    return rawOnline.filter((s) => !localKeys.has(`${s.repoUrl ?? ""}|${s.name}`));
+  }, [rawOnline, filtered]);
+
+  // 独立分页
+  const localScroll = useInfiniteScroll(filtered, `${debouncedQuery}|${selectedTool}`);
+  const onlineScroll = useInfiniteScroll(onlineResults, debouncedQuery);
+
+  const showOnlineSection =
+    enableOnline && !onlineQuery.isLoading && onlineResults.length > 0;
+  const showEmptyState =
+    filtered.length === 0 &&
+    onlineResults.length === 0 &&
+    !onlineQuery.isLoading &&
+    (debouncedQuery.trim().length < 2 || enableOnline);
 
   return (
     <div className="mx-auto max-w-[960px]">
@@ -99,10 +165,7 @@ export default function DiscoverPage() {
       {/* Filters */}
       <div className="mt-3">
         <FilterBar
-          sources={sources}
-          selectedSource={selectedSource}
           selectedTool={selectedTool}
-          onSourceChange={setSelectedSource}
           onToolChange={setSelectedTool}
           allTools={allTools}
         />
@@ -125,13 +188,44 @@ export default function DiscoverPage() {
         </div>
       ) : (
         <>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((s) => (
-              <SkillCard key={s.id} skill={s} />
-            ))}
-          </div>
+          {/* 本地结果 */}
+          {filtered.length > 0 && (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {localScroll.slice.map((s) => (
+                <SkillCard key={s.id} skill={s} />
+              ))}
+            </div>
+          )}
+          {localScroll.hasMore && (
+            <div ref={localScroll.sentinelRef} className="h-4" />
+          )}
 
-          {filtered.length === 0 && (
+          {/* 在线搜索加载 */}
+          {enableOnline && onlineQuery.isLoading && (
+            <div className="mt-4 flex items-center gap-2 text-[13px] text-[var(--color-text-tertiary)]">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              正在搜索 skills.sh...
+            </div>
+          )}
+
+          {/* 在线搜索结果 */}
+          {showOnlineSection && (
+            <>
+              <p className="mt-6 text-[12px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                来自 skills.sh 的在线搜索结果（{onlineResults.length}）
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {onlineScroll.slice.map((s) => (
+                  <SkillCard key={s.id} skill={s} />
+                ))}
+              </div>
+              {onlineScroll.hasMore && (
+                <div ref={onlineScroll.sentinelRef} className="h-4" />
+              )}
+            </>
+          )}
+
+          {showEmptyState && (
             <div className="mt-20 flex flex-col items-center gap-3 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-surface-raised)] border border-[var(--color-border-subtle)]">
                 <Sparkles className="h-5 w-5 text-[var(--color-text-tertiary)]" />

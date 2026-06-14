@@ -12,7 +12,9 @@ export function SkillCard({ skill }: Props) {
   return (
     <button
       className="group w-full rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] p-4 text-left transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-overlay)] active:scale-[0.99]"
-      onClick={() => navigate(`/skill/${encodeURIComponent(skill.id)}`)}
+      onClick={() =>
+        navigate(`/skill/${encodeURIComponent(skill.id)}`, { state: { skill } })
+      }
     >
       {/* Name + Stars */}
       <div className="flex items-center gap-2">

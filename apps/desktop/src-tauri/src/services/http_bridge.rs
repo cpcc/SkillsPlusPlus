@@ -93,6 +93,12 @@ struct CheckSkillUpdateArgs {
     skill_id: String,
 }
 
+#[derive(Deserialize)]
+struct SearchOnlineArgs {
+    query: String,
+    limit: Option<u32>,
+}
+
 /// Convert all top-level keys of a JSON object from camelCase to snake_case
 /// so the typed arg structs above deserialize cleanly from the JS body.
 fn camel_to_snake_keys(v: Value) -> Value {
@@ -218,6 +224,10 @@ async fn invoke_handler(
         }
         "get_skill" => match parse_args::<IdArgs>(&args) {
             Ok(a) => with_conn(&st, |c| src_cmd::get_skill_inner(c, a.id.clone())),
+            Err(e) => Err(e),
+        },
+        "search_online" => match parse_args::<SearchOnlineArgs>(&args) {
+            Ok(a) => src_cmd::search_online_inner(a.query.clone(), a.limit).await.map(to_json),
             Err(e) => Err(e),
         },
 

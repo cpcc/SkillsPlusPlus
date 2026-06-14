@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { SkillItem } from "@skills-pp/shared";
 import { useSkill } from "../../hooks/use-skills";
 import { useDirectories } from "../../hooks/use-directories";
 import { useInstallSkill, useInstallTasks } from "../../hooks/use-install";
@@ -11,9 +12,14 @@ import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: skill, isLoading } = useSkill(
+  const location = useLocation();
+  // 在线兜底卡片（id 形如 `online_xxx`，不在 skill_cache 里）会通过
+  // location.state 传整个 SkillItem 过来；优先使用，避免 get_skill 返回 None。
+  const passedSkill = (location.state as { skill?: SkillItem } | null)?.skill;
+  const { data: fetchedSkill, isLoading } = useSkill(
     id ? decodeURIComponent(id) : "",
   );
+  const skill = passedSkill ?? fetchedSkill;
   const { data: directories = [] } = useDirectories();
   const installMutation = useInstallSkill();
   const { data: tasks = [] } = useInstallTasks();

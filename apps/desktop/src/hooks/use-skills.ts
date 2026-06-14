@@ -33,3 +33,16 @@ export function useSkill(id: string) {
     enabled: !!id,
   });
 }
+
+/**
+ * 在线兜底搜索：仅当本地筛选为空 + query >= 2 字符时触发。
+ * 复用 skills.sh `/api/search`。
+ */
+export function useOnlineSearch(query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["online_search", query],
+    queryFn: () => ipc.searchOnline(query, 30),
+    enabled: enabled && query.trim().length >= 2,
+    staleTime: 60_000,
+  });
+}

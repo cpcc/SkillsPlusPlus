@@ -67,6 +67,10 @@ export const ipc = {
   refreshAllSources: (): Promise<SkillItem[]> => call("refresh_all_sources"),
   getSkill: (id: string): Promise<SkillItem | null> => call("get_skill", { id }),
 
+  // Online fallback search (skills.sh /api/search) — local cache 为空时兜底
+  searchOnline: (query: string, limit?: number): Promise<SkillItem[]> =>
+    call("search_online", { query, limit }),
+
   // Install
   previewInstall: (
     skillName: string,
