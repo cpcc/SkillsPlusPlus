@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
 
 /// 当前 schema 版本号。新建库直接写 V2 全表；旧库按 user_version 升级。
-const CURRENT_USER_VERSION: i64 = 2;
+const CURRENT_USER_VERSION: i64 = 3;
 
 pub fn open(db_path: &PathBuf) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -33,7 +33,22 @@ pub fn migrate(conn: &Connection) -> SqliteResult<()> {
     // add_column_if_missing 对已存在的列是 no-op。
     ensure_v2_columns(conn)?;
 
+    if current < 3 {
+        migrate_v3_fix_copilot_path(conn)?;
+    }
+
     conn.execute_batch(&format!("PRAGMA user_version = {CURRENT_USER_VERSION}"))?;
+    Ok(())
+}
+
+/// V2→V3: 修复 GitHub Copilot 目录路径，从旧的 installed-plugins 子路径改为 `.copilot/skills`。
+fn migrate_v3_fix_copilot_path(conn: &Connection) -> SqliteResult<()> {
+    conn.execute(
+        "UPDATE ai_tool_directories \
+         SET path = REPLACE(path, '/.copilot/installed-plugins/superpowers-marketplace/superpowers/skills', '/.copilot/skills') \
+         WHERE path LIKE '%/.copilot/installed-plugins/superpowers-marketplace/superpowers/skills'",
+        [],
+    )?;
     Ok(())
 }
 
@@ -262,5 +277,45 @@ mod tests {
         assert_eq!(has_table, 1);
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, CURRENT_USER_VERSION);
+    }
+
+    /// V2→V3: 修复 GitHub Copilot 旧路径 → `~/.copilot/skills`。
+    #[test]
+    fn migrate_v3_fixes_copilot_path() {
+        let conn = Connection::open_in_memory().unwrap();
+        // 建一个模拟 V2 库，包含旧的 Copilot 路径
+        conn.execute_batch(
+            "CREATE TABLE skill_sources (id TEXT PRIMARY KEY, name TEXT, base_url TEXT, enabled INTEGER, created_at TEXT);
+             CREATE TABLE skill_cache (id TEXT PRIMARY KEY, source_id TEXT, name TEXT, author TEXT, description TEXT, tags TEXT, repo_url TEXT, detail_url TEXT, updated_at TEXT, compatible_tools TEXT, cached_at TEXT);
+             CREATE TABLE ai_tool_directories (id TEXT PRIMARY KEY, tool_name TEXT, path TEXT, is_default INTEGER, is_detected INTEGER, writable INTEGER, enabled INTEGER, skill_count INTEGER, created_at TEXT);
+             CREATE TABLE installed_skills (id TEXT PRIMARY KEY, skill_id TEXT, name TEXT, tool_name TEXT, directory_id TEXT, source_id TEXT, repo_url TEXT, installed_at TEXT, status TEXT);
+             CREATE TABLE install_tasks (id TEXT PRIMARY KEY, skill_id TEXT, skill_name TEXT, tool_name TEXT, directory_id TEXT, action TEXT, status TEXT, started_at TEXT, finished_at TEXT, error_message TEXT, created_at TEXT);
+             CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+             INSERT INTO ai_tool_directories VALUES ('github-copilot-0', 'GitHub Copilot', '/home/user/.copilot/installed-plugins/superpowers-marketplace/superpowers/skills', 1, 1, 1, 1, 3, datetime('now'));
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let path: String = conn
+            .query_row(
+                "SELECT path FROM ai_tool_directories WHERE id = 'github-copilot-0'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(path, "/home/user/.copilot/skills");
+
+        // 幂等：再跑一次不变化
+        migrate(&conn).unwrap();
+        let path2: String = conn
+            .query_row(
+                "SELECT path FROM ai_tool_directories WHERE id = 'github-copilot-0'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(path2, "/home/user/.copilot/skills");
     }
 }

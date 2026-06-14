@@ -28,9 +28,7 @@ const TOOL_RULES: &[ToolRule] = &[
     },
     ToolRule {
         tool_name: "GitHub Copilot",
-        candidate_paths: &[
-            ".copilot/installed-plugins/superpowers-marketplace/superpowers/skills",
-        ],
+        candidate_paths: &[".copilot/skills"],
     },
     ToolRule {
         tool_name: "Antigravity",
