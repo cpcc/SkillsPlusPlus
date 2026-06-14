@@ -15,6 +15,8 @@ interface Props {
   /** 切换到 copy/archive/skills_cli 时使用的归档下载地址 */
   archiveUrl?: string;
   directories: AiToolDirectory[];
+  /** 已经安装了该 skill 的目录 ID 集合 */
+  installedDirectoryIds?: Set<string>;
   onInstall: (directoryId: string, overwrite: boolean, strategy: InstallStrategy) => void;
   isPending: boolean;
 }
@@ -28,11 +30,22 @@ export function InstallDialog({
   defaultStrategy = "git",
   archiveUrl,
   directories,
+  installedDirectoryIds = new Set(),
   onInstall,
   isPending,
 }: Props) {
   const enabledDirs = directories.filter((d) => d.enabled && d.isDetected && d.writable);
-  const defaultDir = enabledDirs.find((d) => d.isDefault) ?? enabledDirs[0];
+  // Sort: not-installed directories first, then installed ones
+  const sortedDirs = [...enabledDirs].sort((a, b) => {
+    const aInstalled = installedDirectoryIds.has(a.id) ? 1 : 0;
+    const bInstalled = installedDirectoryIds.has(b.id) ? 1 : 0;
+    return aInstalled - bInstalled;
+  });
+  // Default to the first not-installed directory (or the first dir if all are installed)
+  const defaultDir =
+    sortedDirs.find((d) => d.isDefault && !installedDirectoryIds.has(d.id)) ??
+    sortedDirs.find((d) => d.isDefault) ??
+    sortedDirs[0];
 
   const [selectedDirId, setSelectedDirId] = useState(defaultDir?.id ?? "");
   const [strategy, setStrategy] = useState<InstallStrategy | "">("");
@@ -127,7 +140,7 @@ export function InstallDialog({
               <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                 安装目录
               </label>
-              {enabledDirs.length === 0 ? (
+              {sortedDirs.length === 0 ? (
                 <p className="mt-1 text-[12px] text-[var(--color-danger)]">
                   没有可用的安装目录，请先在「工具与目录」中配置。
                 </p>
@@ -139,9 +152,9 @@ export function InstallDialog({
                     onChange={(e) => setSelectedDirId(e.target.value)}
                     required
                   >
-                    {enabledDirs.map((d) => (
+                    {sortedDirs.map((d) => (
                       <option key={d.id} value={d.id}>
-                        [{d.toolName}] {d.path}
+                        [{d.toolName}] {d.path}{installedDirectoryIds.has(d.id) ? " — 已安装" : ""}
                       </option>
                     ))}
                   </select>
@@ -231,7 +244,7 @@ export function InstallDialog({
                 disabled={
                   isPending ||
                   !selectedDirId ||
-                  enabledDirs.length === 0 ||
+                  sortedDirs.length === 0 ||
                   (!!preview?.conflict && !overwrite)
                 }
                 className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-accent-muted)] px-4 py-[7px] text-[13px] font-medium text-white transition-colors hover:bg-[var(--color-accent)] disabled:opacity-40 active:scale-[0.98]"
