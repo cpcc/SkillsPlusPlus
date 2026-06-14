@@ -355,3 +355,18 @@ pub async fn fetch_skill_md(
 ) -> Result<Option<String>, String> {
     fetch_skill_md_inner(std::sync::Arc::clone(&db.0), id).await
 }
+
+// ─── Online fallback search (skills.sh /api/search) ────────────────────────
+
+/// 调 skills.sh 在线搜索，本地缓存为空时的兜底。
+pub async fn search_online_inner(
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<SkillItem>, String> {
+    crate::services::adapters::skills_sh_search::search(&query, limit).await
+}
+
+#[tauri::command]
+pub async fn search_online(query: String, limit: Option<u32>) -> Result<Vec<SkillItem>, String> {
+    search_online_inner(query, limit).await
+}

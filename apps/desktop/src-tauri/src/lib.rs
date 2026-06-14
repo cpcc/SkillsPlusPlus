@@ -67,6 +67,7 @@ pub fn run() {
             commands::source::refresh_all_sources,
             commands::source::get_skill,
             commands::source::fetch_skill_md,
+            commands::source::search_online,
             commands::install::preview_install,
             commands::install::install_skill,
             commands::install::reinstall_skill,

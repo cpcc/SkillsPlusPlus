@@ -80,6 +80,10 @@ export const ipc = {
   getSkill: (id: string): Promise<SkillItem | null> => call("get_skill", { id }),
   fetchSkillMd: (id: string): Promise<string | null> => call("fetch_skill_md", { id }),
 
+  // Online fallback search (skills.sh /api/search) — local cache 为空时兜底
+  searchOnline: (query: string, limit?: number): Promise<SkillItem[]> =>
+    call("search_online", { query, limit }),
+
   // Install
   previewInstall: (
     skillName: string,

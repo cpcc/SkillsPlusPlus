@@ -42,3 +42,16 @@ export function useSkillMd(id: string) {
     staleTime: 1000 * 60 * 30, // 30 min
   });
 }
+
+/**
+ * 在线兜底搜索：本地和线上同时搜索。
+ * 复用 skills.sh `/api/search`。
+ */
+export function useOnlineSearch(query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["online_search", query],
+    queryFn: () => ipc.searchOnline(query, 30),
+    enabled: enabled && query.trim().length >= 2,
+    staleTime: 60_000,
+  });
+}
