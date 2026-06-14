@@ -97,15 +97,47 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build & upload Tauri artifacts
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Tauri
+        run: pnpm --filter desktop tauri build ${{ matrix.args }}
+
+      - name: Rename and upload artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ needs.create-release.outputs.tag }}
-          releaseName: ${{ needs.create-release.outputs.tag }}
-          releaseDraft: true
-          args: ${{ matrix.args }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.create-release.outputs.tag }}"
+          VERSION="${TAG#v}"
+          BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
+
+          case "${{ matrix.platform }}" in
+            macos-latest)
+              PLATFORM="macOS"
+              if echo "${{ matrix.args }}" | grep -q "aarch64"; then
+                ARCH="arm64"
+              else
+                ARCH="x86_64"
+              fi
+              # DMG
+              for f in "$BUNDLE_DIR/dmg"/*.dmg; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.dmg"; done
+              # .app.tar.gz
+              for f in "$BUNDLE_DIR/macos"/*.app.tar.gz; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.tar.gz"; done
+              ;;
+            ubuntu-22.04)
+              PLATFORM="Linux"; ARCH="x86_64"
+              for f in "$BUNDLE_DIR/appimage"/*.AppImage; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.AppImage"; done
+              for f in "$BUNDLE_DIR/deb"/*.deb; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.deb"; done
+              for f in "$BUNDLE_DIR/rpm"/*.rpm; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.rpm"; done
+              ;;
+            windows-latest)
+              PLATFORM="Windows"; ARCH="x86_64"
+              for f in "$BUNDLE_DIR/msi"/*.msi; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.msi"; done
+              for f in "$BUNDLE_DIR/nsis"/*.exe; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}-setup.exe"; done
+              ;;
+          esac
+
+          # Upload all renamed artifacts to the draft release
+          gh release upload "$TAG" skills++-v${VERSION}-* --clobber
 
   publish-release:
     needs: [create-release, build-tauri]

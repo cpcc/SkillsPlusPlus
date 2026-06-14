@@ -6,12 +6,8 @@ set -euo pipefail
 TAG="${1:?Usage: $0 <tag>}"
 VERSION="${TAG#v}"
 
-# ── Determine previous tag ──────────────────────────────────────────────
-PREV_TAG="$(git tag --sort=-version:refname | grep -v '^p[0-9]' | head -n 1)"
-# If this tag is the same as PREV_TAG (first release), or no previous tag found
-if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
-  PREV_TAG=""
-fi
+# ── Determine previous version tag (nearest v* tag in ancestry) ──────────
+PREV_TAG="$(git describe --abbrev=0 --tags --match 'v*' "${TAG}~1" 2>/dev/null || echo "")"
 
 # ── Collect stats ───────────────────────────────────────────────────────
 if [ -n "$PREV_TAG" ]; then
@@ -28,9 +24,9 @@ if [ -n "$PREV_TAG" ]; then
   get_commits() {
     git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null
   }
-  FEAT_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^(feat|feature)[:(]' || true)"
-  FIX_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^(fix|bug)[:(]' || true)"
-  OTHER_COMMITS="$(get_commits | grep -viE '^(feat|feature|fix|bug)[:(]' || true)"
+  FEAT_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^- (feat|feature)[:(]' || true)"
+  FIX_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^- (fix|bug)[:(]' || true)"
+  OTHER_COMMITS="$(get_commits | grep -viE '^- (feat|feature|fix|bug)[:(]' || true)"
 
   # Contributors (deduplicated)
   CONTRIBUTORS="$(git log "$PREV_TAG..$TAG" --format='%an <%ae>' 2>/dev/null | sort -u | sed 's/^/- /' || true)"
@@ -101,15 +97,19 @@ ${CONTRIBUTORS}
 
 ## Assets
 
-| Platform | Architecture | Format |
-|----------|-------------|--------|
-| Linux | x86_64 | .AppImage / .deb |
-| macOS | Apple Silicon (M1+) | .dmg |
-| macOS | Intel | .dmg |
-| Windows | x86_64 | .msi |
+**Linux** (x86_64)
+- skills++-v${VERSION}-Linux-x86_64.AppImage
+- skills++-v${VERSION}-Linux-x86_64.deb
 
-> 适用于 macOS 12+ / Ubuntu 22.04+ / Windows 10+。
-> 安装后首次启动请前往 设置 > 工具目录 检查 AI 工具路径。
+**macOS**
+- skills++-v${VERSION}-macOS-arm64.dmg（Apple Silicon）
+- skills++-v${VERSION}-macOS-x86_64.dmg（Intel）
+
+**Windows** (x86_64)
+- skills++-v${VERSION}-Windows-x86_64-setup.exe（NSIS）
+- skills++-v${VERSION}-Windows-x86_64.msi
+
+> 各文件 SHA256 校验和见下方 Assets 列表。
 
 ---
 
