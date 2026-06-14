@@ -12,6 +12,16 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Victauri: embeds an MCP server (127.0.0.1:7373) in debug builds so an
+        // external AI agent (e.g. Claude Code) can drive the app for testing.
+        // Fixed token so `claude mcp add` registration survives `tauri dev` restarts.
+        // No-op in release builds.
+        .plugin(
+            victauri_plugin::VictauriBuilder::new()
+                .auth_token("dev-secret-unchanging")
+                .build()
+                .expect("failed to build victauri plugin"),
+        )
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
