@@ -319,13 +319,68 @@ fn looks_like_zip(bytes: &[u8]) -> bool {
     bytes.len() >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4b && bytes[2] == 0x03 && bytes[3] == 0x04
 }
 
+/// BFS 搜索目录树，找到第一个包含 SKILL.md 的目录，返回该目录路径。
+/// 优先匹配名称与 `skill_name` 最接近的目录（按字符相似度）。
+fn find_skill_folder_with_name(base_dir: &Path, skill_name: &str) -> Option<PathBuf> {
+    let mut candidates: Vec<(PathBuf, usize)> = Vec::new();
+    let mut queue: Vec<PathBuf> = vec![base_dir.to_path_buf()];
+
+    while let Some(dir) = queue.pop() {
+        if has_skill_md(&dir) {
+            // 计算目录名与 skill_name 的公共前缀长度作为相似度
+            let dir_name = dir.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            let score = common_prefix_len(&dir_name.to_lowercase(), &skill_name.to_lowercase());
+            candidates.push((dir.clone(), score));
+        }
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let hidden = path.file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|n| n.starts_with('.'))
+                    .unwrap_or(false);
+                if path.is_dir() && !hidden {
+                    queue.push(path);
+                }
+            }
+        }
+    }
+
+    // 选最高分；平局时取路径最短（最顶层）
+    candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_string_lossy().len().cmp(&b.0.to_string_lossy().len())));
+    candidates.into_iter().next().map(|(p, _)| p)
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.chars().zip(b.chars()).take_while(|(ca, cb)| ca == cb).count()
+}
+
+/// 递归复制 src 下所有内容到 dst（类似 `cp -r src/* dst/`）。
+fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("mkdir dst: {e}"))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("read_dir {src:?}: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+        if src_path.is_dir() {
+            copy_dir_contents(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| format!("copy {src_path:?} -> {dst_path:?}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// skills_cli 安装策略（对齐 vercel-labs `npx skills`）：
-/// 1. canonical = `~/.agents/skills/<name>/`
-/// 2. 若 canonical 不存在：用 git/copy/archive 之一把内容装到 canonical
-/// 3. 解析 SKILL.md，必要时 rename canonical 到规范名
-/// 4. 在 `agent_link_dir/<name>` 创建 symlink → canonical
-/// 5. 写 lockfile 条目
-/// 6. 返回 outcome（canonical_path / symlink_path / content_hash）
+/// 1. clone 仓库到临时目录 / download archive 到临时目录
+/// 2. 在临时目录中搜索 SKILL.md，找到实际 skill 目录
+/// 3. 复制 skill 目录内容到 canonical = `~/.agents/skills/<name>/`
+/// 4. 解析 SKILL.md，必要时 rename canonical 到规范名
+/// 5. 在 `agent_link_dir/<name>` 创建 symlink → canonical
+/// 6. 写 lockfile 条目
+/// 7. 返回 outcome（canonical_path / symlink_path / content_hash）
 ///
 /// `agent_link_dir` 通常为 `~/.claude/skills/` 这类 AI 工具目录。
 fn install_skills_cli(
@@ -340,24 +395,28 @@ fn install_skills_cli(
 
     let mut canonical = canonical_root.join(skill_md::sanitize_name(skill_name));
 
-    // 1) 拉内容到 canonical。
+    // 1) 拉内容到临时目录，然后找到 SKILL.md 所在目录复制到 canonical。
     if !canonical.exists() || fs::read_dir(&canonical).map(|mut d| d.next().is_none()).unwrap_or(true) {
-        // 选择底层策略：有 archive_url 用 copy（tar.gz），否则用 git clone。
-        let used_git;
+        let temp_dir = tempfile::tempdir().map_err(|e| format!("create temp dir: {e}"))?;
+        let clone_target = temp_dir.path().join("repo");
+
+        // 下载 / clone 到临时目录。
         if let Some(url) = archive_url.filter(|u| !u.is_empty()) {
-            download_and_extract(url, &canonical, /* strip_git = */ true)?;
-            used_git = false;
+            download_and_extract(url, &clone_target, /* strip_git = */ true)?;
         } else {
-            // 临时 clone 到 canonical。
-            fs::create_dir_all(&canonical).ok();
-            // git_clone 期望 target 是最终目录；先 clone 到 canonical 再清 .git。
-            let _ = git_clone(repo_url, &canonical);
-            if canonical.exists() {
-                let _ = fs::remove_dir_all(canonical.join(".git"));
+            git_clone(repo_url, &clone_target)?;
+            if clone_target.exists() {
+                let _ = fs::remove_dir_all(clone_target.join(".git"));
             }
-            used_git = true;
         }
-        let _ = used_git;
+
+        // 在 clone 中搜索 SKILL.md。
+        let skill_folder = find_skill_folder_with_name(&clone_target, skill_name)
+            .ok_or_else(|| "no SKILL.md found in repository".to_string())?;
+
+        // 复制 skill 目录内容到 canonical。
+        fs::create_dir_all(&canonical).ok();
+        copy_dir_contents(&skill_folder, &canonical)?;
     }
 
     if !has_skill_md(&canonical) {
@@ -366,13 +425,17 @@ fn install_skills_cli(
     }
 
     // 2) 规范化目录名。
+    let name_key;
     if let Some(manifest) = skill_md::parse_skill_md(&canonical) {
         let normalized = skill_md::normalize_skill_dir(&canonical, &manifest);
         canonical = normalized;
+        name_key = skill_md::sanitize_name(&manifest.name);
+    } else {
+        name_key = skill_md::sanitize_name(skill_name);
     }
 
     // 3) symlink：agent_link_dir/<name> -> canonical
-    let link = agent_link_dir.join(skill_md::sanitize_name(skill_name));
+    let link = agent_link_dir.join(&name_key);
     fs::create_dir_all(agent_link_dir).map_err(|e| format!("mkdir agent_link_dir: {e}"))?;
     symlink::create_symlink(&canonical, &link)?;
 
@@ -380,7 +443,7 @@ fn install_skills_cli(
     let hash = cstore::compute_folder_hash(&canonical);
     let now = now_iso8601();
     let source_label = derive_source_label(repo_url);
-    let source_type = if archive_url.is_some() { "archive" } else { "github" };
+    let source_type = if archive_url.filter(|u| !u.is_empty()).is_some() { "archive" } else { "github" };
     let entry = LockEntry {
         source: source_label,
         source_type: source_type.to_string(),
@@ -390,7 +453,6 @@ fn install_skills_cli(
         installed_at: now.clone(),
         updated_at: now,
     };
-    let name_key = skill_md::sanitize_name(skill_name);
     if let Err(e) = lockfile::upsert_entry(&name_key, entry) {
         log::warn!("lockfile upsert failed for {name_key}: {e}");
     }
