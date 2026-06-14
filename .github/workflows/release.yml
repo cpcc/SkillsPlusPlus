@@ -108,22 +108,19 @@ jobs:
           set -euo pipefail
           TAG="${{ needs.create-release.outputs.tag }}"
           VERSION="${TAG#v}"
-          # macOS cross-compiles with --target, output goes to target/<triple>/release/bundle
-          TARGET_TRIPLE="$(echo '${{ matrix.args }}' | grep -oE '[a-z_]+-[a-z_]+-[a-z]+' || echo '')"
-          if [ -n "$TARGET_TRIPLE" ]; then
-            BUNDLE_DIR="apps/desktop/src-tauri/target/${TARGET_TRIPLE}/release/bundle"
-          else
-            BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
-          fi
 
           case "${{ matrix.platform }}" in
             macos-latest)
               PLATFORM="macOS"
               if echo "${{ matrix.args }}" | grep -q "aarch64"; then
                 ARCH="arm64"
+                BUNDLE_DIR="apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
               else
                 ARCH="x86_64"
+                BUNDLE_DIR="apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle"
               fi
+              echo "BUNDLE_DIR=$BUNDLE_DIR"
+              ls -la "$BUNDLE_DIR/dmg/" || true
               # DMG
               for f in "$BUNDLE_DIR/dmg"/*.dmg; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.dmg"; done
               # .app.tar.gz
@@ -131,12 +128,14 @@ jobs:
               ;;
             ubuntu-22.04)
               PLATFORM="Linux"; ARCH="x86_64"
+              BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
               for f in "$BUNDLE_DIR/appimage"/*.AppImage; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.AppImage"; done
               for f in "$BUNDLE_DIR/deb"/*.deb; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.deb"; done
               for f in "$BUNDLE_DIR/rpm"/*.rpm; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.rpm"; done
               ;;
             windows-latest)
               PLATFORM="Windows"; ARCH="x86_64"
+              BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
               for f in "$BUNDLE_DIR/msi"/*.msi; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}.msi"; done
               for f in "$BUNDLE_DIR/nsis"/*.exe; do [ -f "$f" ] || continue; mv "$f" "skills++-v${VERSION}-${PLATFORM}-${ARCH}-setup.exe"; done
               ;;
