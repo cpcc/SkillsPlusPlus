@@ -1,49 +1,13 @@
-import type { ComponentType } from "react";
 import type { AiToolDirectory } from "@skills-pp/shared";
 import {
-  Folder,
   CheckCircle,
   XCircle,
   AlertCircle,
   Star,
   MoreHorizontal,
 } from "lucide-react";
-import {
-  Claude,
-  Cursor,
-  OpenAI,
-  Gemini,
-  Kimi,
-  OpenCode,
-  Antigravity,
-  OpenClaw,
-  CodeBuddy,
-  GithubCopilot,
-} from "@lobehub/icons";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-
-// Map canonical tool_name (from directory.rs TOOL_RULES) → brand icon.
-// Keys are lowercased for case-insensitive lookup.
-const TOOL_ICON_MAP: Record<string, ComponentType<{ size?: number; className?: string }>> = {
-  claude: Claude,
-  cursor: Cursor,
-  codex: OpenAI,
-  "github copilot": GithubCopilot,
-  opencode: OpenCode,
-  antigravity: Antigravity,
-  "gemini cli": Gemini,
-  "kimi code cli": Kimi,
-  openclaw: OpenClaw,
-  codebuddy: CodeBuddy,
-};
-
-function ToolIcon({ toolName }: { toolName: string }) {
-  const Icon = TOOL_ICON_MAP[toolName.trim().toLowerCase()];
-  if (!Icon) {
-    return <Folder className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-accent)]" />;
-  }
-  return <Icon size={16} className="mt-0.5 shrink-0" />;
-}
+import { ToolIcon } from "../../components/ui/ToolIcon";
 
 interface Props {
   dir: AiToolDirectory;
@@ -93,7 +57,7 @@ export function DirectoryCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <ToolIcon toolName={dir.toolName} />
+          <ToolIcon toolName={dir.toolName} size="sm" className="mt-0.5" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-medium text-[var(--color-text-primary)]">
