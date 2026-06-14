@@ -63,6 +63,14 @@ skills++ 是个桌面应用，帮你干这些事。它从 skills.sh、LobeHub、
 - macOS: `.dmg`
 - Linux: `.deb` / `.rpm` / `.AppImage`
 
+或者 clone 项目自己跑：
+```bash
+git clone https://github.com/cpcc/SkillsPlusPlus.git
+cd SkillsPlusPlus
+pnpm install
+pnpm dev
+```
+
 ## 技术栈
 
 | 层级 | 技术 |
