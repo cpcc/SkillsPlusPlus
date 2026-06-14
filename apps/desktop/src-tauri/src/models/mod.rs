@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub version: String,
     pub db_path: String,
@@ -9,6 +10,7 @@ pub struct AppInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirectoryRow {
     pub id: String,
     pub tool_name: String,
@@ -21,6 +23,7 @@ pub struct DirectoryRow {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub id: String,
     pub tool_name: String,
@@ -68,6 +71,7 @@ impl Default for InstallStrategy {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SkillItem {
     pub id: String,
     pub name: String,
@@ -89,6 +93,7 @@ pub struct SkillItem {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceRow {
     pub id: String,
     pub name: String,
@@ -97,6 +102,7 @@ pub struct SourceRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstallTaskRow {
     pub id: String,
     pub skill_id: Option<String>,
@@ -112,6 +118,7 @@ pub struct InstallTaskRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstallPreview {
     pub skill_name: String,
     pub repo_url: String,
@@ -125,12 +132,14 @@ pub struct InstallPreview {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConflictInfo {
     pub existing_path: String,
     pub kind: String, // "existing_dir" | "existing_file"
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstalledSkillRow {
     pub id: String,
     pub skill_id: Option<String>,
