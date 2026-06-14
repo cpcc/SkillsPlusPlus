@@ -103,22 +103,6 @@ pub struct SourceRow {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InstallTaskRow {
-    pub id: String,
-    pub skill_id: Option<String>,
-    pub skill_name: String,
-    pub tool_name: String,
-    pub directory_id: String,
-    pub action: String,
-    pub status: String,
-    pub started_at: Option<String>,
-    pub finished_at: Option<String>,
-    pub error_message: Option<String>,
-    pub log_lines: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct InstallPreview {
     pub skill_name: String,
     pub repo_url: String,

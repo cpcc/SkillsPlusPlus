@@ -546,40 +546,6 @@ pub fn remove_skill_dir(target: &Path) -> Result<(), String> {
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
-pub fn create_install_task(
-    conn: &Connection,
-    id: &str,
-    skill_id: Option<&str>,
-    skill_name: &str,
-    tool_name: &str,
-    directory_id: &str,
-    action: &str,
-) -> SqliteResult<()> {
-    conn.execute(
-        "INSERT INTO install_tasks \
-         (id, skill_id, skill_name, tool_name, directory_id, action, status, started_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', datetime('now'))",
-        params![id, skill_id, skill_name, tool_name, directory_id, action],
-    )?;
-    Ok(())
-}
-
-pub fn finish_install_task(
-    conn: &Connection,
-    id: &str,
-    success: bool,
-    error_message: Option<&str>,
-) -> SqliteResult<()> {
-    let status = if success { "success" } else { "failed" };
-    conn.execute(
-        "UPDATE install_tasks \
-         SET status = ?1, finished_at = datetime('now'), error_message = ?2 \
-         WHERE id = ?3",
-        params![status, error_message, id],
-    )?;
-    Ok(())
-}
-
 pub fn record_installed_skill(
     conn: &Connection,
     id: &str,
@@ -648,22 +614,6 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
     rows.collect()
 }
 
-pub fn list_install_tasks(conn: &Connection, limit: i64) -> SqliteResult<Vec<(String, String, String, String, Option<String>)>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, skill_name, action, status, error_message \
-         FROM install_tasks ORDER BY created_at DESC LIMIT ?1",
-    )?;
-    let rows = stmt.query_map(params![limit], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, Option<String>>(4)?,
-        ))
-    })?;
-    rows.collect()
-}
 
 // ─── Import existing local skills ─────────────────────────────────────────────
 

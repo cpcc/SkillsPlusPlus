@@ -72,7 +72,6 @@ pub fn run() {
             commands::install::reinstall_skill,
             commands::install::uninstall_skill,
             commands::install::list_installed_skills,
-            commands::install::list_install_tasks,
             commands::install::check_git_available,
             commands::install::refresh_installed_skills,
             commands::install::check_skill_update,
