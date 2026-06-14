@@ -90,6 +90,16 @@ export type AppInfo = {
   platform: string;
 };
 
+// ===== 应用更新检查（GitHub Releases latest） =====
+export type UpdateInfo = {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  releaseNotes: string;
+  publishedAt: string;
+};
+
 // ===== 错误码 =====
 export const ErrorCode = {
   DIR_NOT_FOUND: "DIR_NOT_FOUND",

@@ -1,5 +1,8 @@
 import { NavLink } from "react-router-dom";
 import { Compass, Package, Wrench, Settings } from "lucide-react";
+import { useUpdateCheck } from "../../hooks/use-update-check";
+import { useAppInfo } from "../../hooks/use-app-info";
+import { ipc } from "../../lib/ipc";
 
 const navItems = [
   { to: "/discover", icon: Compass, label: "发现" },
@@ -9,6 +12,12 @@ const navItems = [
 ];
 
 export function SideNav() {
+  // 只读 Query 缓存（请求由 App.tsx 根组件触发），避免 nav 渲染打 API。
+  const { data: appInfo } = useAppInfo();
+  const { data } = useUpdateCheck();
+  const update = data?.hasUpdate ? data : null;
+  const version = appInfo?.version ?? "0.0.0";
+
   return (
     <nav className="flex h-full w-[200px] shrink-0 flex-col border-r border-[var(--color-border-subtle)] bg-[var(--color-surface-sidebar)]">
       {/* Brand */}
@@ -44,9 +53,20 @@ export function SideNav() {
 
       {/* Footer */}
       <div className="mt-auto px-5 pb-4">
-        <p className="text-[11px] text-[var(--color-text-tertiary)]">
-          v0.1.0
-        </p>
+        {update ? (
+          <button
+            type="button"
+            onClick={() => ipc.openReleaseUrl(update.releaseUrl)}
+            title={`前往 GitHub 下载 v${update.latestVersion}`}
+            className="text-[11px] font-medium text-[var(--color-accent-text)] transition-opacity hover:opacity-80"
+          >
+            🎉 发现新版本 v{update.latestVersion}
+          </button>
+        ) : (
+          <p className="text-[11px] text-[var(--color-text-tertiary)]">
+            v{version}
+          </p>
+        )}
       </div>
     </nav>
   );
