@@ -291,9 +291,6 @@ async fn invoke_handler(
             }),
             Err(e) => Err(e),
         },
-        "list_install_tasks" => {
-            with_conn(&st, install_cmd::list_install_tasks_inner)
-        }
         "check_git_available" => Ok(json!(install_cmd::check_git_available_inner())),
         "read_lockfile" => install_cmd::read_lockfile().map(to_json),
         "list_canonical_skills" => install_cmd::list_canonical_skills().map(to_json),

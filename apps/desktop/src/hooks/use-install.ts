@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc } from "../lib/ipc";
+import { useToast } from "../components/ui/toast";
 import type { InstallPreview, InstallStrategy } from "@skills-pp/shared";
 
 export const INSTALLED_KEY = ["installed-skills"] as const;
-export const TASKS_KEY = ["install-tasks"] as const;
 
 export function useInstalledSkills() {
   return useQuery({
@@ -32,13 +32,6 @@ export function useCheckSkillUpdate() {
   });
 }
 
-export function useInstallTasks() {
-  return useQuery({
-    queryKey: TASKS_KEY,
-    queryFn: () => ipc.listInstallTasks(),
-  });
-}
-
 export function usePreviewInstall() {
   return useMutation({
     mutationFn: ({
@@ -58,6 +51,7 @@ export function usePreviewInstall() {
 
 export function useInstallSkill() {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (params: {
       skillId?: string;
@@ -68,15 +62,19 @@ export function useInstallSkill() {
       strategy?: InstallStrategy;
       archiveUrl?: string;
     }) => ipc.installSkill(params),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: INSTALLED_KEY });
-      qc.invalidateQueries({ queryKey: TASKS_KEY });
+      toast(`「${vars.skillName}」安装成功`, undefined, "default");
+    },
+    onError: (error: Error, vars) => {
+      toast(`「${vars.skillName}」安装失败`, error.message, "error");
     },
   });
 }
 
 export function useUninstallSkill() {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({
       skillName,
@@ -85,15 +83,19 @@ export function useUninstallSkill() {
       skillName: string;
       directoryId: string;
     }) => ipc.uninstallSkill(skillName, directoryId),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: INSTALLED_KEY });
-      qc.invalidateQueries({ queryKey: TASKS_KEY });
+      toast(`「${vars.skillName}」已卸载`, undefined, "default");
+    },
+    onError: (error: Error, vars) => {
+      toast(`「${vars.skillName}」卸载失败`, error.message, "error");
     },
   });
 }
 
 export function useReinstallSkill() {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (params: {
       skillId?: string;
@@ -103,9 +105,12 @@ export function useReinstallSkill() {
       strategy?: InstallStrategy;
       archiveUrl?: string;
     }) => ipc.reinstallSkill(params),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: INSTALLED_KEY });
-      qc.invalidateQueries({ queryKey: TASKS_KEY });
+      toast(`「${vars.skillName}」重装成功`, undefined, "default");
+    },
+    onError: (error: Error, vars) => {
+      toast(`「${vars.skillName}」重装失败`, error.message, "error");
     },
   });
 }

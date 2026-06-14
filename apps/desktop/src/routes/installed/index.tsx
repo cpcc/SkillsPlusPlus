@@ -16,7 +16,6 @@ import {
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
   useInstalledSkills,
-  useInstallTasks,
   useUninstallSkill,
   useReinstallSkill,
   useRefreshInstalledSkills,
@@ -24,7 +23,6 @@ import {
 } from "../../hooks/use-install";
 import { useDirectories } from "../../hooks/use-directories";
 import { InstallDialog } from "../../components/install/InstallDialog";
-import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 import type { InstalledSkill } from "@skills-pp/shared";
 
 const STATUS_CONFIG = {
@@ -37,7 +35,6 @@ const STATUS_CONFIG = {
 export default function InstalledPage() {
   const navigate = useNavigate();
   const { data: installed = [], isLoading } = useInstalledSkills();
-  const { data: tasks = [] } = useInstallTasks();
   const { data: directories = [] } = useDirectories();
 
   const uninstallMutation = useUninstallSkill();
@@ -92,8 +89,6 @@ export default function InstalledPage() {
     openPath(skillPath);
   }
 
-  const recentTasks = tasks.slice(0, 5);
-
   function getSkillPath(skill: InstalledSkill): string {
     if (skill.directoryPath) {
       return `${skill.directoryPath}/${skill.name}`;
@@ -142,18 +137,6 @@ export default function InstalledPage() {
           刷新状态
         </button>
       </div>
-
-      {/* Recent install tasks */}
-      {recentTasks.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-[12px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
-            最近安装记录
-          </h3>
-          {recentTasks.map((t) => (
-            <InstallLogPanel key={t.id} task={t} />
-          ))}
-        </div>
-      )}
 
       {/* Installed list */}
       {installed.length === 0 ? (

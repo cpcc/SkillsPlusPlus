@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
-  InstallTaskResult, InstallPreview, InstalledSkill,
+  InstallPreview, InstalledSkill,
   InstallStrategy, LockEntry, CanonicalSkill,
 } from "@skills-pp/shared";
 
@@ -80,16 +80,15 @@ export const ipc = {
     directoryId: string; overwrite: boolean;
     strategy?: InstallStrategy;
     archiveUrl?: string;
-  }): Promise<InstallTaskResult> => call("install_skill", params),
+  }): Promise<void> => call("install_skill", params),
   reinstallSkill: (params: {
     skillId?: string; skillName: string; repoUrl: string; directoryId: string;
     strategy?: InstallStrategy;
     archiveUrl?: string;
-  }): Promise<InstallTaskResult> => call("reinstall_skill", params),
-  uninstallSkill: (skillName: string, directoryId: string): Promise<InstallTaskResult> =>
+  }): Promise<void> => call("reinstall_skill", params),
+  uninstallSkill: (skillName: string, directoryId: string): Promise<void> =>
     call("uninstall_skill", { skillName, directoryId }),
   listInstalledSkills: (): Promise<InstalledSkill[]> => call("list_installed_skills"),
-  listInstallTasks: (): Promise<InstallTaskResult[]> => call("list_install_tasks"),
   checkGitAvailable: (): Promise<boolean> => call("check_git_available"),
   refreshInstalledSkills: (): Promise<InstalledSkill[]> => call("refresh_installed_skills"),
   checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => call("check_skill_update", { skillId }),

@@ -57,20 +57,6 @@ export type InstalledSkill = {
   canonicalPath?: string;
 };
 
-// ===== 安装任务 =====
-export type InstallTask = {
-  id: string;
-  skillId?: string;
-  skillName: string;
-  toolName: string;
-  directoryId: string;
-  action: "install" | "reinstall" | "uninstall" | "scan";
-  status: "pending" | "running" | "success" | "failed" | "cancelled";
-  startedAt?: string;
-  finishedAt?: string;
-  errorMessage?: string;
-};
-
 // ===== 工具目录规则（Rust 侧镜像类型） =====
 export type ToolRule = {
   toolName: string;
@@ -108,19 +94,7 @@ export type AppError = {
   detail?: string;
 };
 
-// ===== 安装任务 (frontend view) =====
-export type InstallTaskResult = {
-  id: string;
-  skillId?: string;
-  skillName: string;
-  toolName: string;
-  directoryId: string;
-  action: "install" | "reinstall" | "uninstall";
-  status: "success" | "failed" | "running";
-  errorMessage?: string;
-  logLines: string[];
-};
-
+// ===== 安装预览 =====
 export type InstallPreview = {
   skillName: string;
   repoUrl: string;

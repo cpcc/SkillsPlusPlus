@@ -4,9 +4,8 @@ import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-re
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSkill } from "../../hooks/use-skills";
 import { useDirectories } from "../../hooks/use-directories";
-import { useInstallSkill, useInstallTasks } from "../../hooks/use-install";
+import { useInstallSkill } from "../../hooks/use-install";
 import { InstallDialog } from "../../components/install/InstallDialog";
-import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,13 +15,8 @@ export default function SkillDetailPage() {
   );
   const { data: directories = [] } = useDirectories();
   const installMutation = useInstallSkill();
-  const { data: tasks = [] } = useInstallTasks();
 
   const [installOpen, setInstallOpen] = useState(false);
-
-  const relatedTasks = tasks.filter(
-    (t) => skill && t.skillName === skill.name,
-  );
 
   if (isLoading) {
     return (
@@ -161,18 +155,6 @@ export default function SkillDetailPage() {
           详情
         </button>
       </div>
-
-      {/* Install logs */}
-      {relatedTasks.length > 0 && (
-        <div className="mt-8 space-y-3">
-          <h3 className="text-[12px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
-            安装记录
-          </h3>
-          {relatedTasks.map((t) => (
-            <InstallLogPanel key={t.id} task={t} />
-          ))}
-        </div>
-      )}
 
       {skill.repoUrl && (
         <InstallDialog
