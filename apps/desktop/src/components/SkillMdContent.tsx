@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { marked } from "marked";
-import { FileText, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 
 interface Props {
   markdown: string | null | undefined;
@@ -43,16 +43,7 @@ export function SkillMdContent({ markdown, isLoading, isError }: Props) {
   }
 
   if (!html) {
-    return (
-      <div className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] p-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-surface-hover)]">
-          <FileText className="h-4 w-4 text-[var(--color-text-tertiary)]" />
-        </div>
-        <p className="text-[13px] text-[var(--color-text-tertiary)]">
-          该 Skill 未提供 SKILL.md
-        </p>
-      </div>
-    );
+    return null;
   }
 
   return (
