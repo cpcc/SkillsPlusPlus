@@ -482,3 +482,22 @@ pub fn import_existing_skills(db: State<DbState>) -> Result<usize, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     svc::import_existing_skills(&conn).map_err(|e| e.to_string())
 }
+
+/// Open a directory (or file) in the OS file manager. Bypasses
+/// tauri-plugin-opener's scope validation, which is too restrictive for
+/// arbitrary user home paths. Uses the platform-native helper binary.
+#[tauri::command]
+pub fn open_skill_dir(path: String) -> Result<(), String> {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(program)
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("failed to open {path}: {e}"))?;
+    Ok(())
+}

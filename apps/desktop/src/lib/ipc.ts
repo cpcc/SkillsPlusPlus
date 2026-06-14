@@ -95,6 +95,7 @@ export const ipc = {
   refreshInstalledSkills: (): Promise<InstalledSkill[]> => call("refresh_installed_skills"),
   checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => call("check_skill_update", { skillId }),
   importExistingSkills: (): Promise<number> => call("import_existing_skills"),
+  openSkillDir: (path: string): Promise<void> => call("open_skill_dir", { path }),
 
   // Canonical store / lockfile（与 npx skills 互通）
   readLockfile: (): Promise<Record<string, LockEntry>> => call("read_lockfile"),

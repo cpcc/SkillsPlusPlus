@@ -14,7 +14,7 @@ import {
   ExternalLink,
   Package,
 } from "lucide-react";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { ipc } from "../../lib/ipc";
 import {
   useInstalledSkills,
   useInstallTasks,
@@ -107,7 +107,9 @@ export default function InstalledPage() {
     const skillPath = skill.directoryPath
       ? `${skill.directoryPath}/${skill.name}`
       : skill.directoryId;
-    openPath(skillPath);
+    ipc.openSkillDir(skillPath).catch((e) => {
+      console.error("openSkillDir failed", e);
+    });
   }
 
   const recentTasks = tasks.slice(0, 5);

@@ -77,6 +77,7 @@ pub fn run() {
             commands::install::read_lockfile,
             commands::install::list_canonical_skills,
             commands::install::import_existing_skills,
+            commands::install::open_skill_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

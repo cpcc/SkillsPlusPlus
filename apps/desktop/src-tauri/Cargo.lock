@@ -2236,9 +2236,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.30.1"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+checksum = "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3322,9 +3322,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.32.1"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e"
+checksum = "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae"
 dependencies = [
  "bitflags 2.13.0",
  "fallible-iterator",
@@ -4623,7 +4623,6 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper",
  "tokio",
- "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -4892,27 +4891,24 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "victauri-core"
-version = "0.8.0"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca3e1a9b6362591160b4c718596e89d2bdf640da448ad220ae70b74e25e69d1c"
+checksum = "5378d10646f6f343950d636e6982313939a45af5f1c73e6c28be3b6d23f4fea3"
 dependencies = [
- "axum 0.8.9",
  "chrono",
  "inventory",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tracing",
- "url",
  "uuid",
 ]
 
 [[package]]
 name = "victauri-macros"
-version = "0.8.0"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "472e5ec13e8297d6700f80075cffb8b9a42969c6521877d46542331802c65d0d"
+checksum = "8c3388b3d67fb02a04fee2de26b82910d7addfe7f10d574ca522344127967b47"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4921,9 +4917,9 @@ dependencies = [
 
 [[package]]
 name = "victauri-plugin"
-version = "0.8.0"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26642c7cef2559122f2484bb2e33e84eadf740297a4a24def3987a9eb2382b1d"
+checksum = "2a8e1fd9e8139c5ea0e1997004b1b9ee5185540e72539e43248078d38d4d550b"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -4933,7 +4929,6 @@ dependencies = [
  "raw-window-handle",
  "regex",
  "rmcp",
- "rusqlite",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -4941,7 +4936,6 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.18",
  "tokio",
- "tower",
  "tracing",
  "url",
  "uuid",
