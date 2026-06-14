@@ -8,3 +8,4 @@ apps/desktop/src-tauri/target/
 .claude/worktrees
 docs/
 CLAUDE.md
+.mimocode/
