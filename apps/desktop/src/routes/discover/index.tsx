@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { RefreshCw, Search, Sparkles } from "lucide-react";
 import type { SkillItem } from "@skills-pp/shared";
 import {
@@ -56,7 +57,10 @@ export default function DiscoverPage() {
   const refresh = useRefreshAllSources();
   const toast = useToast();
 
-  const [query, setQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get("q") ?? "";
+  const setQuery = (q: string) =>
+    setSearchParams(q ? { q } : {}, { replace: true });
   const [selectedSource, setSelectedSource] = useState("skills_sh");
   const debouncedQuery = useDebounced(query, 300);
 

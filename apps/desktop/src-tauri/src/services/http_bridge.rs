@@ -240,7 +240,12 @@ async fn invoke_handler(
             Err(e) => Err(e),
         },
         "search_online" => match parse_args::<SearchOnlineArgs>(&args) {
-            Ok(a) => src_cmd::search_online_inner(a.query.clone(), a.limit).await.map(to_json),
+            Ok(a) => {
+                let db = Arc::clone(&st.db);
+                src_cmd::search_online_inner(db, a.query.clone(), a.limit)
+                    .await
+                    .map(to_json)
+            }
             Err(e) => Err(e),
         },
 

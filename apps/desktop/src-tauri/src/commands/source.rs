@@ -1,6 +1,6 @@
 use crate::commands::app::DbState;
 use crate::models::{SkillItem, SourceRow};
-use crate::services::skill_md::strip_frontmatter;
+use crate::services::skill_md::{parse_frontmatter_and_strip, FrontmatterMeta};
 use crate::services::source_registry::SourceRegistry;
 use rusqlite::{params, Connection};
 use std::sync::{Arc, Mutex};
@@ -311,38 +311,68 @@ pub async fn fetch_skill_md_inner(
         None => return Ok(None),
     };
 
-    // 4. Fetch SKILL.md — try main then master
+    // 4. Fetch SKILL.md and README.md concurrently, prefer SKILL.md
     let client = reqwest::Client::builder()
         .user_agent("skills-plus-plus/0.1")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut content: Option<String> = None;
-    for branch in ["main", "master"] {
-        let url = format!(
-            "https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/{branch}/SKILL.md"
-        );
-        match client.get(&url).send().await {
-            Ok(r) if r.status().is_success() => {
-                let text = r.text().await.map_err(|e| e.to_string())?;
-                content = Some(strip_frontmatter(&text));
-                break;
+    async fn try_fetch_file(
+        client: &reqwest::Client,
+        owner: &str,
+        repo: &str,
+        filename: &str,
+    ) -> Option<(Option<FrontmatterMeta>, String)> {
+        for branch in ["main", "master"] {
+            let url = format!(
+                "https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/{branch}/{filename}"
+            );
+            match client.get(&url).send().await {
+                Ok(r) if r.status().is_success() => {
+                    let text = r.text().await.ok()?;
+                    let (meta, body) = parse_frontmatter_and_strip(&text);
+                    return Some((meta, body));
+                }
+                _ => continue,
             }
-            _ => continue,
         }
+        None
     }
 
+    let (sk, rm) = tokio::join!(
+        try_fetch_file(&client, &owner, &repo, "SKILL.md"),
+        try_fetch_file(&client, &owner, &repo, "README.md"),
+    );
+    let content = sk.or(rm);
+
     match content {
-        Some(text) => {
-            // 5. Cache
+        Some((meta, body)) => {
+            // 5. Cache — persist both SKILL.md body and frontmatter metadata.
+            let tags_json = meta
+                .as_ref()
+                .map(|m| serde_json::to_string(&m.tags).unwrap_or_default())
+                .unwrap_or_default();
             let conn = db.lock().map_err(|e| e.to_string())?;
             conn.execute(
-                "UPDATE skill_cache SET skill_md = ?1 WHERE id = ?2",
-                params![text, id],
+                "UPDATE skill_cache SET \
+                 author = CASE WHEN ?1 != '' THEN ?1 ELSE author END, \
+                 description = CASE WHEN ?2 != '' THEN ?2 ELSE description END, \
+                 tags = CASE WHEN ?3 != '' THEN ?3 ELSE tags END, \
+                 updated_at = CASE WHEN ?4 != '' THEN ?4 ELSE updated_at END, \
+                 skill_md = ?5 \
+                 WHERE id = ?6",
+                params![
+                    meta.as_ref().and_then(|m| m.author.as_deref()).unwrap_or(""),
+                    meta.as_ref().and_then(|m| m.description.as_deref()).unwrap_or(""),
+                    tags_json,
+                    meta.as_ref().and_then(|m| m.updated_at.as_deref()).unwrap_or(""),
+                    body,
+                    id,
+                ],
             )
             .map_err(|e| e.to_string())?;
-            Ok(Some(text))
+            Ok(Some(body))
         }
         None => Ok(None),
     }
@@ -359,14 +389,49 @@ pub async fn fetch_skill_md(
 // ─── Online fallback search (skills.sh /api/search) ────────────────────────
 
 /// 调 skills.sh 在线搜索，本地缓存为空时的兜底。
+/// 搜索结果同时持久化到 skill_cache。
 pub async fn search_online_inner(
+    db: Arc<Mutex<Connection>>,
     query: String,
     limit: Option<u32>,
 ) -> Result<Vec<SkillItem>, String> {
-    crate::services::adapters::skills_sh_search::search(&query, limit).await
+    let items = crate::services::adapters::skills_sh_search::search(&query, limit).await?;
+
+    // 逐条 UPSERT，避免与 store_skills 的 DELETE-then-reinsert 冲突。
+    {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        persist_online_results(&conn, &items)?;
+    }
+
+    Ok(items)
+}
+
+/// 将在线搜索结果逐条 INSERT OR REPLACE 到 skill_cache。
+fn persist_online_results(conn: &Connection, items: &[SkillItem]) -> Result<(), String> {
+    for item in items {
+        let tags = serde_json::to_string(&item.tags).unwrap_or_default();
+        let tools = serde_json::to_string(&item.compatible_tools).unwrap_or_default();
+        let strategy = item.install_strategy.map(|s| s.as_str().to_string());
+        conn.execute(
+            "INSERT OR REPLACE INTO skill_cache \
+             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                item.id, item.source_id, item.name, item.author, item.description,
+                tags, item.repo_url, item.detail_url, item.updated_at, tools,
+                strategy, item.archive_url, item.stars,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn search_online(query: String, limit: Option<u32>) -> Result<Vec<SkillItem>, String> {
-    search_online_inner(query, limit).await
+pub async fn search_online(
+    db: State<'_, DbState>,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<SkillItem>, String> {
+    search_online_inner(std::sync::Arc::clone(&db.0), query, limit).await
 }

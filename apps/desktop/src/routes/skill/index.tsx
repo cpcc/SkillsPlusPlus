@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSkill, useSkillMd } from "../../hooks/use-skills";
 import type { SkillItem } from "@skills-pp/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDirectories } from "../../hooks/use-directories";
 import { useInstallSkill, useInstalledSkills } from "../../hooks/use-install";
 import { InstallDialog } from "../../components/install/InstallDialog";
@@ -18,9 +19,37 @@ export default function SkillDetailPage() {
   // location.state 传整个 SkillItem 过来；优先使用，避免 get_skill 返回 None。
   const passedSkill = (location.state as { skill?: SkillItem } | null)?.skill;
   const { data: fetchedSkill, isLoading } = useSkill(skillId);
-  const skill = passedSkill ?? fetchedSkill;
+  const queryClient = useQueryClient();
   const { data: skillMd, isLoading: skillMdLoading, isError: skillMdError } =
     useSkillMd(skillId);
+
+  // Merge: fetchedSkill (from DB) fields take priority when they have values.
+  const skill = useMemo(() => {
+    if (!passedSkill) return fetchedSkill;
+    if (!fetchedSkill) return passedSkill;
+    return {
+      ...passedSkill,
+      ...fetchedSkill,
+      description: fetchedSkill.description ?? passedSkill.description,
+      tags:
+        fetchedSkill.tags.length > 0
+          ? fetchedSkill.tags
+          : passedSkill.tags,
+      compatibleTools:
+        (fetchedSkill.compatibleTools?.length ?? 0) > 0
+          ? fetchedSkill.compatibleTools
+          : passedSkill.compatibleTools,
+      updatedAt: fetchedSkill.updatedAt ?? passedSkill.updatedAt,
+    };
+  }, [passedSkill, fetchedSkill]);
+
+  // After SKILL.md is fetched and metadata written to DB, refresh the skill
+  // query so useSkill picks up the updated author/description/tags/updatedAt.
+  useEffect(() => {
+    if (skillMd !== undefined && skillMd !== null) {
+      queryClient.invalidateQueries({ queryKey: ["skill", skillId] });
+    }
+  }, [skillMd, skillId, queryClient]);
   const { data: directories = [] } = useDirectories();
   const installMutation = useInstallSkill();
   const { data: installedSkills = [] } = useInstalledSkills();

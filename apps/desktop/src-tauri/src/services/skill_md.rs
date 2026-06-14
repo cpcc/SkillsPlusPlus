@@ -35,6 +35,102 @@ fn read_skill_md(dir: &Path) -> Option<String> {
     None
 }
 
+/// 从 SKILL.md frontmatter 中提取的完整元数据。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontmatterMeta {
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 解析 frontmatter 并同时返回剥离后的正文。
+/// 若无有效元数据则返回 `(None, content)`。
+pub fn parse_frontmatter_and_strip(content: &str) -> (Option<FrontmatterMeta>, String) {
+    let Some(front) = extract_frontmatter(content) else {
+        return (None, content.to_string());
+    };
+    let body = strip_frontmatter(content);
+
+    let author = field(&front, "author")
+        .map(|s| s.trim().trim_matches('"').trim().to_string())
+        .filter(|s| !s.is_empty());
+    let description = field(&front, "description")
+        .map(|s| s.trim().trim_matches('"').trim().to_string())
+        .filter(|s| !s.is_empty());
+    let updated_at = field(&front, "updated_at")
+        .or_else(|| field(&front, "updatedAt"))
+        .map(|s| s.trim().trim_matches('"').trim().to_string())
+        .filter(|s| !s.is_empty());
+    let tags = parse_tags(&front);
+
+    if author.is_none() && description.is_none() && updated_at.is_none() && tags.is_empty() {
+        (None, body)
+    } else {
+        (
+            Some(FrontmatterMeta {
+                author,
+                description,
+                tags,
+                updated_at,
+            }),
+            body,
+        )
+    }
+}
+
+/// 从 frontmatter 文本中解析 `tags` 字段，支持三种格式：
+/// - 内联数组：`tags: [a, b]`
+/// - YAML 列表：`tags:\n  - a\n  - b`
+/// - 单值：`tags: some-tag`
+fn parse_tags(front: &str) -> Vec<String> {
+    // 先尝内联数组格式 tags: [a, b, c]
+    if let Some(v) = field(front, "tags") {
+        let v = v.trim();
+        if v.starts_with('[') && v.ends_with(']') {
+            let inner = &v[1..v.len() - 1];
+            return inner
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+    }
+
+    // 再尝 YAML 列表格式（跨行）
+    let mut in_tags = false;
+    let mut tags: Vec<String> = Vec::new();
+    for line in front.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("tags:") {
+            in_tags = true;
+            // tags: 后面跟单值（不能在单行同时是 YAML 列表项）
+            let rest = trimmed.strip_prefix("tags:").unwrap_or_default().trim();
+            if rest.starts_with('[') || rest.starts_with('#') || rest.is_empty() {
+                continue;
+            }
+            // 单值
+            let tag = rest.trim_matches('"').trim().to_string();
+            if !tag.is_empty() {
+                tags.push(tag);
+            }
+            break;
+        }
+        if in_tags {
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                tags.push(item.trim().trim_matches('"').trim().to_string());
+            } else if trimmed.is_empty() || trimmed.starts_with('#') {
+                // skip blank/comment lines
+            } else {
+                // 不是列表项，结束
+                break;
+            }
+        }
+    }
+
+    tags
+}
+
 /// 剥离 YAML frontmatter（首对 `---`），返回正文部分。
 /// 若无 frontmatter 则返回原文。
 pub fn strip_frontmatter(content: &str) -> String {
@@ -195,5 +291,99 @@ mod tests {
     fn sanitize_replaces_special() {
         assert_eq!(sanitize_name("Foo Bar"), "Foo-Bar");
         assert_eq!(sanitize_name("a/b@c"), "a-b-c");
+    }
+
+    // ─── parse_frontmatter_and_strip tests ──────────────────────────────
+
+    #[test]
+    fn pfs_all_fields() {
+        let (meta, body) = parse_frontmatter_and_strip(
+            "---\nname: my-skill\nauthor: Alice\ndescription: \"Does stuff\"\ntags: [a, b]\nupdated_at: 2024-01-15\n---\n\nBody text\n",
+        );
+        let m = meta.expect("should have meta");
+        assert_eq!(m.author.as_deref(), Some("Alice"));
+        assert_eq!(m.description.as_deref(), Some("Does stuff"));
+        assert_eq!(m.tags, vec!["a", "b"]);
+        assert_eq!(m.updated_at.as_deref(), Some("2024-01-15"));
+        assert!(body.contains("Body text"));
+        assert!(!body.contains("---"));
+    }
+
+    #[test]
+    fn pfs_inline_array_tags() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags: [rust, cli, \"ai\"]\n---\n\nbody\n",
+        );
+        let tags = meta.unwrap().tags;
+        assert_eq!(tags, vec!["rust", "cli", "ai"]);
+    }
+
+    #[test]
+    fn pfs_yaml_list_tags() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags:\n  - rust\n  - cli\n  - ai\n---\n\nbody\n",
+        );
+        let tags = meta.unwrap().tags;
+        assert_eq!(tags, vec!["rust", "cli", "ai"]);
+    }
+
+    #[test]
+    fn pfs_single_value_tag() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags: utilities\n---\n\nbody\n",
+        );
+        let tags = meta.unwrap().tags;
+        assert_eq!(tags, vec!["utilities"]);
+    }
+
+    #[test]
+    fn pfs_empty_array_tags_returns_empty_vec() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags: []\n---\n\nbody\n",
+        );
+        // tags: [] alone shouldn't create meta — no tracked fields
+        assert!(meta.is_none());
+    }
+
+    #[test]
+    fn pfs_no_frontmatter_returns_none() {
+        let (meta, body) = parse_frontmatter_and_strip("# Just a heading\nSome text");
+        assert!(meta.is_none());
+        assert_eq!(body, "# Just a heading\nSome text");
+    }
+
+    #[test]
+    fn pfs_only_name_no_tracked_fields() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\nname: foo\n---\n\nbody\n",
+        );
+        assert!(meta.is_none(), "name is not a tracked field for FrontmatterMeta");
+    }
+
+    #[test]
+    fn pfs_quoted_tags() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags: [\"openai\", \"llm\"]\n---\n\nbody\n",
+        );
+        let tags = meta.unwrap().tags;
+        assert_eq!(tags, vec!["openai", "llm"]);
+    }
+
+    #[test]
+    fn pfs_body_preserved() {
+        let input = "---\ndescription: Test\n---\n\n# Heading\n\nParagraph text\n- item 1\n- item 2\n";
+        let (meta, body) = parse_frontmatter_and_strip(input);
+        assert!(meta.is_some());
+        assert!(body.contains("# Heading"));
+        assert!(body.contains("Paragraph text"));
+        assert!(!body.contains("---"));
+    }
+
+    #[test]
+    fn parse_tags_inline_array_with_spaces() {
+        let (meta, _) = parse_frontmatter_and_strip(
+            "---\ntags: [  rust , cli , ai  ]\n---\n\nbody\n",
+        );
+        assert_eq!(meta.unwrap().tags, vec!["rust", "cli", "ai"]);
     }
 }
