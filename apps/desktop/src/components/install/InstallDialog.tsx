@@ -1,6 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useState, useEffect } from "react";
-import { X, AlertTriangle, CheckCircle, Loader2, ChevronDown, Link2 } from "lucide-react";
+import { X, AlertTriangle, CheckCircle, Loader2, ChevronDown, Link2, Check } from "lucide-react";
+import { ToolIcon } from "../ui/ToolIcon";
 import type { AiToolDirectory, InstallPreview, InstallStrategy } from "@skills-pp/shared";
 import { ipc } from "../../lib/ipc";
 
@@ -39,6 +41,7 @@ export function InstallDialog({
   const [preview, setPreview] = useState<InstallPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
+  const [dirDropdownOpen, setDirDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -132,21 +135,46 @@ export function InstallDialog({
                   没有可用的安装目录，请先在「工具与目录」中配置。
                 </p>
               ) : (
-                <div className="relative">
-                  <select
-                    className="w-full appearance-none rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-2 pr-8 text-[13px] text-[var(--color-text-primary)] transition-colors focus:border-[var(--color-accent)] focus:outline-none cursor-pointer"
-                    value={selectedDirId}
-                    onChange={(e) => setSelectedDirId(e.target.value)}
-                    required
-                  >
-                    {enabledDirs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        [{d.toolName}] {d.path}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-                </div>
+                <DropdownMenu.Root open={dirDropdownOpen} onOpenChange={setDirDropdownOpen}>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] py-2 pl-2.5 pr-8 text-[13px] text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus:border-[var(--color-accent)] focus:outline-none cursor-pointer relative"
+                    >
+                      {(() => {
+                        const sel = enabledDirs.find((d) => d.id === selectedDirId);
+                        return sel ? (
+                          <>
+                            <ToolIcon toolName={sel.toolName} size="sm" />
+                            <span className="truncate">[{sel.toolName}] {sel.path}</span>
+                          </>
+                        ) : null;
+                      })()}
+                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      className="z-[60] max-h-64 overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-overlay)] p-1 shadow-xl shadow-black/20"
+                      align="start"
+                      sideOffset={4}
+                    >
+                      {enabledDirs.map((d) => (
+                        <DropdownMenu.Item
+                          key={d.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-[13px] text-[var(--color-text-primary)] outline-none data-[highlighted]:bg-[var(--color-surface-hover)]"
+                          onSelect={() => setSelectedDirId(d.id)}
+                        >
+                          <ToolIcon toolName={d.toolName} size="sm" />
+                          <span className="truncate">[{d.toolName}] {d.path}</span>
+                          {d.id === selectedDirId && (
+                            <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+                          )}
+                        </DropdownMenu.Item>
+                      ))}
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
               )}
             </div>
 
