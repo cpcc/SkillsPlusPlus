@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Usage: ./generate-release-body.sh <tag>
+# Generates a multilingual release body (zh-CN default, en, ja) for skills++ releases.
+set -euo pipefail
+
+TAG="${1:?Usage: $0 <tag>}"
+VERSION="${TAG#v}"
+
+# ── Determine previous tag ──────────────────────────────────────────────
+PREV_TAG="$(git tag --sort=-version:refname | grep -v '^p[0-9]' | head -n 1)"
+# If this tag is the same as PREV_TAG (first release), or no previous tag found
+if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
+  PREV_TAG=""
+fi
+
+# ── Collect stats ───────────────────────────────────────────────────────
+if [ -n "$PREV_TAG" ]; then
+  COMMITS="$(git rev-list --count "$PREV_TAG..$TAG" 2>/dev/null || echo "0")"
+  STATS_LINE="$(git diff --stat "$PREV_TAG" "$TAG" 2>/dev/null | tail -1 || true)"
+  FILES_CHANGED="$(echo "$STATS_LINE" | sed -E -n 's/.* ([0-9]+) files? changed.*/\1/p' || echo "0")"
+  INSERTIONS="$(echo "$STATS_LINE" | sed -E -n 's/.* ([0-9]+) insertion.*/\1/p' || echo "0")"
+  DELETIONS="$(echo "$STATS_LINE" | sed -E -n 's/.* ([0-9]+) deletion.*/\1/p' || echo "0")"
+  [ -z "$FILES_CHANGED" ] && FILES_CHANGED="0"
+  [ -z "$INSERTIONS" ] && INSERTIONS="0"
+  [ -z "$DELETIONS" ] && DELETIONS="0"
+
+  # Categorize commits
+  get_commits() {
+    git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null
+  }
+  FEAT_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^(feat|feature)[:(]' || true)"
+  FIX_COMMITS="$(git log "$PREV_TAG..$TAG" --oneline --format='- %s' 2>/dev/null | grep -iE '^(fix|bug)[:(]' || true)"
+  OTHER_COMMITS="$(get_commits | grep -viE '^(feat|feature|fix|bug)[:(]' || true)"
+
+  # Contributors (deduplicated)
+  CONTRIBUTORS="$(git log "$PREV_TAG..$TAG" --format='%an <%ae>' 2>/dev/null | sort -u | sed 's/^/- /' || true)"
+  [ -z "$CONTRIBUTORS" ] && CONTRIBUTORS="- @$(git config user.name || echo 'developer')"
+else
+  COMMITS="0"
+  FILES_CHANGED="0"
+  INSERTIONS="0"
+  DELETIONS="0"
+  FEAT_COMMITS=""
+  FIX_COMMITS=""
+  OTHER_COMMITS=""
+  CONTRIBUTORS="- @$(git config user.name || echo 'developer')"
+fi
+
+RELEASE_DATE="$(date +%Y-%m-%d)"
+TIMESTAMP="$(date +%s)"
+REPO="$(git remote get-url origin 2>/dev/null | sed -E 's|https://github.com/||; s|git@github.com:||; s|\.git$||' || echo 'owner/repo')"
+COMPARE_LINK="https://github.com/${REPO}/compare/${PREV_TAG:-$(git rev-list --max-parents=0 HEAD | head -1)}...${TAG}"
+
+# ── Build release body ──────────────────────────────────────────────────
+cat << BODY
+<!--
+######################################################################
+  skills++ v${VERSION}
+  中文（默认） | English | 日本語
+  Generated: ${RELEASE_DATE}
+  DO NOT remove the anchor markers—they are used for language links.
+######################################################################
+-->
+
+# skills++ v${VERSION}
+
+<p align="center">
+  <a href="#english">English</a> · <a href="#japanese">日本語</a>
+</p>
+
+---
+
+## 概览
+
+<!--
+请简要描述此版本的主要内容、目标或亮点。后续修改时删掉此注释即可。
+-->
+
+**发布日期**：${RELEASE_DATE}
+**更新规模**：${COMMITS} commits · ${FILES_CHANGED} files changed · +${INSERTIONS} / -${DELETIONS}
+
+## ✨ 新功能
+
+${FEAT_COMMITS}
+
+## 🐛 修复
+
+${FIX_COMMITS}
+
+## 🔧 其他变更
+
+${OTHER_COMMITS}
+
+> 完整提交历史：[${PREV_TAG}..${TAG}](${COMPARE_LINK})
+
+## 👥 Contributors
+
+${CONTRIBUTORS}
+
+---
+
+## Assets
+
+| Platform | Architecture | Format |
+|----------|-------------|--------|
+| Linux | x86_64 | .AppImage / .deb |
+| macOS | Apple Silicon (M1+) | .dmg |
+| macOS | Intel | .dmg |
+| Windows | x86_64 | .msi |
+
+> 适用于 macOS 12+ / Ubuntu 22.04+ / Windows 10+。
+> 安装后首次启动请前往 设置 > 工具目录 检查 AI 工具路径。
+
+---
+
+<div id="english"></div>
+
+## skills++ v${VERSION} — English
+
+**Release Date**: ${RELEASE_DATE}
+**Update Size**: ${COMMITS} commits · ${FILES_CHANGED} files changed · +${INSERTIONS} / -${DELETIONS}
+
+### ✨ Features
+
+${FEAT_COMMITS}
+
+### 🐛 Bug Fixes
+
+${FIX_COMMITS}
+
+### 🔧 Other Changes
+
+${OTHER_COMMITS}
+
+**Contributors**:
+${CONTRIBUTORS}
+
+---
+
+<div id="japanese"></div>
+
+## skills++ v${VERSION} — 日本語
+
+**リリース日**: ${RELEASE_DATE}
+**更新規模**: ${COMMITS} commits · ${FILES_CHANGED} files changed · +${INSERTIONS} / -${DELETIONS}
+
+### ✨ 新機能
+
+${FEAT_COMMITS}
+
+### 🐛 バグ修正
+
+${FIX_COMMITS}
+
+### 🔧 その他の変更
+
+${OTHER_COMMITS}
+
+**コントリビューター**:
+${CONTRIBUTORS}
+
+BODY

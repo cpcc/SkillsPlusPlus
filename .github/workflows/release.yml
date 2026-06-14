@@ -28,14 +28,24 @@ jobs:
           else
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release body
+        id: body
+        run: |
+          chmod +x .github/scripts/generate-release-body.sh
+          .github/scripts/generate-release-body.sh "${{ steps.tag.outputs.tag }}" > /tmp/release-body.md
+          echo "body=/tmp/release-body.md" >> $GITHUB_OUTPUT
       - name: Create draft release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
+          name: skills++ ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.body.outputs.body }}
           draft: true
-          generate_release_notes: true
 
   build-tauri:
     needs: create-release
@@ -95,7 +105,6 @@ jobs:
           tagName: ${{ needs.create-release.outputs.tag }}
           releaseName: ${{ needs.create-release.outputs.tag }}
           releaseDraft: true
-          generateReleaseNotes: true
           args: ${{ matrix.args }}
 
   publish-release:
