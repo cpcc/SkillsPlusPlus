@@ -4,13 +4,6 @@ import { X, AlertTriangle, CheckCircle, Loader2, ChevronDown, Link2 } from "luci
 import type { AiToolDirectory, InstallPreview, InstallStrategy } from "@skills-pp/shared";
 import { ipc } from "../../lib/ipc";
 
-const STRATEGIES: { value: InstallStrategy; label: string; hint: string }[] = [
-  { value: "git", label: "Git 克隆", hint: "完整 .git，可增量更新" },
-  { value: "copy", label: "拷贝", hint: "tar.gz 解压，无 .git" },
-  { value: "archive", label: "压缩包", hint: "zip 解压" },
-  { value: "skills_cli", label: "软链 + 规范存储", hint: "与 npx skills 互通" },
-];
-
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,7 +35,7 @@ export function InstallDialog({
   const defaultDir = enabledDirs.find((d) => d.isDefault) ?? enabledDirs[0];
 
   const [selectedDirId, setSelectedDirId] = useState(defaultDir?.id ?? "");
-  const [strategy, setStrategy] = useState<InstallStrategy>(defaultStrategy);
+  const [strategy, setStrategy] = useState<InstallStrategy | "">("");
   const [preview, setPreview] = useState<InstallPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -50,29 +43,31 @@ export function InstallDialog({
   useEffect(() => {
     if (open) {
       setSelectedDirId(defaultDir?.id ?? "");
-      setStrategy(defaultStrategy);
+      setStrategy("");
       setPreview(null);
       setOverwrite(false);
     }
-  }, [open, defaultDir?.id, defaultStrategy]);
+  }, [open, defaultDir?.id]);
+
+  const resolvedStrategy: InstallStrategy = strategy || defaultStrategy;
 
   useEffect(() => {
     if (!selectedDirId || !repoUrl) return;
     setLoadingPreview(true);
-    ipc.previewInstall(skillName, repoUrl, selectedDirId, strategy)
+    ipc.previewInstall(skillName, repoUrl, selectedDirId, resolvedStrategy)
       .then((p: InstallPreview) => { setPreview(p); setOverwrite(false); })
       .catch(() => setPreview(null))
       .finally(() => setLoadingPreview(false));
-  }, [selectedDirId, skillName, repoUrl, strategy]);
+  }, [selectedDirId, skillName, repoUrl, resolvedStrategy]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedDirId) return;
-    onInstall(selectedDirId, overwrite, strategy);
+    onInstall(selectedDirId, overwrite, resolvedStrategy);
   }
 
-  const nonGitStrategy = strategy !== "git";
-  const missingArchiveUrl = nonGitStrategy && !archiveUrl && strategy !== "skills_cli";
+  const explicitNonGit = strategy !== "" && strategy !== "git";
+  const missingArchiveUrl = explicitNonGit && !archiveUrl && strategy !== "skills_cli";
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -106,33 +101,19 @@ export function InstallDialog({
               <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                 安装方式
               </label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {STRATEGIES.map((opt) => {
-                  const selected = strategy === opt.value;
-                  return (
-                    <button
-                      type="button"
-                      key={opt.value}
-                      onClick={() => setStrategy(opt.value)}
-                      className={`rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors ${
-                        selected
-                          ? "border-[var(--color-accent)] bg-[var(--color-accent-subtle)]"
-                          : "border-[var(--color-border-default)] bg-[var(--color-surface-raised)] hover:bg-[var(--color-surface-hover)]"
-                      }`}
-                    >
-                      <p className={`text-[12px] font-medium ${
-                        selected
-                          ? "text-[var(--color-accent)]"
-                          : "text-[var(--color-text-secondary)]"
-                      }`}>
-                        {opt.label}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                        {opt.hint}
-                      </p>
-                    </button>
-                  );
-                })}
+              <div className="relative">
+                <select
+                  className="w-full appearance-none rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-2 pr-8 text-[13px] text-[var(--color-text-primary)] transition-colors focus:border-[var(--color-accent)] focus:outline-none cursor-pointer"
+                  value={strategy}
+                  onChange={(e) => setStrategy(e.target.value as InstallStrategy | "")}
+                >
+                  <option value="">默认</option>
+                  <option value="git">Git 克隆</option>
+                  <option value="copy">拷贝</option>
+                  <option value="archive">压缩包</option>
+                  <option value="skills_cli">软链 + 规范存储</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
               </div>
               {missingArchiveUrl && (
                 <p className="mt-1.5 text-[11px] text-[var(--color-warning)]">
