@@ -17,6 +17,8 @@ interface Props {
   /** 切换到 copy/archive/skills_cli 时使用的归档下载地址 */
   archiveUrl?: string;
   directories: AiToolDirectory[];
+  /** 已经安装了该 skill 的目录 ID 集合 */
+  installedDirectoryIds?: Set<string>;
   onInstall: (directoryId: string, overwrite: boolean, strategy: InstallStrategy) => void;
   isPending: boolean;
 }
@@ -30,11 +32,22 @@ export function InstallDialog({
   defaultStrategy = "git",
   archiveUrl,
   directories,
+  installedDirectoryIds = new Set(),
   onInstall,
   isPending,
 }: Props) {
   const enabledDirs = directories.filter((d) => d.enabled && d.isDetected && d.writable);
-  const defaultDir = enabledDirs.find((d) => d.isDefault) ?? enabledDirs[0];
+  // Sort: not-installed directories first, then installed ones
+  const sortedDirs = [...enabledDirs].sort((a, b) => {
+    const aInstalled = installedDirectoryIds.has(a.id) ? 1 : 0;
+    const bInstalled = installedDirectoryIds.has(b.id) ? 1 : 0;
+    return aInstalled - bInstalled;
+  });
+  // Default to the first not-installed directory (or the first dir if all are installed)
+  const defaultDir =
+    sortedDirs.find((d) => d.isDefault && !installedDirectoryIds.has(d.id)) ??
+    sortedDirs.find((d) => d.isDefault) ??
+    sortedDirs[0];
 
   const [selectedDirId, setSelectedDirId] = useState(defaultDir?.id ?? "");
   const [strategy, setStrategy] = useState<InstallStrategy | "">("");
@@ -130,7 +143,7 @@ export function InstallDialog({
               <label className="mb-1.5 block text-[12px] font-medium text-[var(--color-text-secondary)]">
                 安装目录
               </label>
-              {enabledDirs.length === 0 ? (
+              {sortedDirs.length === 0 ? (
                 <p className="mt-1 text-[12px] text-[var(--color-danger)]">
                   没有可用的安装目录，请先在「工具与目录」中配置。
                 </p>
@@ -142,7 +155,7 @@ export function InstallDialog({
                       className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] py-2 pl-2.5 pr-8 text-[13px] text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus:border-[var(--color-accent)] focus:outline-none cursor-pointer relative"
                     >
                       {(() => {
-                        const sel = enabledDirs.find((d) => d.id === selectedDirId);
+                        const sel = sortedDirs.find((d) => d.id === selectedDirId);
                         return sel ? (
                           <>
                             <ToolIcon toolName={sel.toolName} size="sm" />
@@ -159,14 +172,14 @@ export function InstallDialog({
                       align="start"
                       sideOffset={4}
                     >
-                      {enabledDirs.map((d) => (
+                      {sortedDirs.map((d) => (
                         <DropdownMenu.Item
                           key={d.id}
                           className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-[13px] text-[var(--color-text-primary)] outline-none data-[highlighted]:bg-[var(--color-surface-hover)]"
                           onSelect={() => setSelectedDirId(d.id)}
                         >
                           <ToolIcon toolName={d.toolName} size="sm" />
-                          <span className="truncate">[{d.toolName}] {d.path}</span>
+                          <span className="truncate">[{d.toolName}] {d.path}{installedDirectoryIds.has(d.id) ? " — 已安装" : ""}</span>
                           {d.id === selectedDirId && (
                             <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
                           )}
@@ -259,7 +272,7 @@ export function InstallDialog({
                 disabled={
                   isPending ||
                   !selectedDirId ||
-                  enabledDirs.length === 0 ||
+                  sortedDirs.length === 0 ||
                   (!!preview?.conflict && !overwrite)
                 }
                 className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-accent-muted)] px-4 py-[7px] text-[13px] font-medium text-white transition-colors hover:bg-[var(--color-accent)] disabled:opacity-40 active:scale-[0.98]"

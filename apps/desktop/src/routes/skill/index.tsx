@@ -4,7 +4,7 @@ import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-re
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSkill, useSkillMd } from "../../hooks/use-skills";
 import { useDirectories } from "../../hooks/use-directories";
-import { useInstallSkill } from "../../hooks/use-install";
+import { useInstallSkill, useInstalledSkills } from "../../hooks/use-install";
 import { InstallDialog } from "../../components/install/InstallDialog";
 import { SkillMdContent } from "../../components/SkillMdContent";
 
@@ -17,6 +17,14 @@ export default function SkillDetailPage() {
     useSkillMd(skillId);
   const { data: directories = [] } = useDirectories();
   const installMutation = useInstallSkill();
+  const { data: installedSkills = [] } = useInstalledSkills();
+
+  // Directory IDs that already have this skill installed
+  const installedDirIds = new Set(
+    installedSkills
+      .filter((s) => skill && s.name === skill.name)
+      .map((s) => s.directoryId),
+  );
 
   const [installOpen, setInstallOpen] = useState(false);
 
@@ -180,6 +188,7 @@ export default function SkillDetailPage() {
           defaultStrategy={skill.installStrategy}
           archiveUrl={skill.archiveUrl}
           directories={directories}
+          installedDirectoryIds={installedDirIds}
           isPending={installMutation.isPending}
           onInstall={(directoryId, overwrite, strategy) => {
             installMutation.mutate(
