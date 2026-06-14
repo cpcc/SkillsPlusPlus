@@ -1,5 +1,6 @@
 use crate::commands::app::DbState;
 use crate::models::{SkillItem, SourceRow};
+use crate::services::skill_md::strip_frontmatter;
 use crate::services::source_registry::SourceRegistry;
 use rusqlite::{params, Connection};
 use std::sync::{Arc, Mutex};
@@ -247,4 +248,110 @@ pub fn get_skill_inner(conn: &Connection, id: String) -> Result<Option<SkillItem
 pub fn get_skill(db: State<DbState>, id: String) -> Result<Option<SkillItem>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     get_skill_inner(&conn, id)
+}
+
+// ─── SKILL.md content ──────────────────────────────────────────────────────
+
+/// Extract (owner, repo) from a GitHub URL like https://github.com/owner/repo
+fn extract_github_owner_repo(url: &str) -> Option<(String, String)> {
+    let path = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))?;
+    let path = path.strip_suffix('/').unwrap_or(path);
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let mut parts = path.splitn(3, '/');
+    let owner = parts.next()?.to_string();
+    let repo = parts.next()?.to_string();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner, repo))
+}
+
+/// Fetch SKILL.md from GitHub raw, caching to skill_cache.skill_md.
+pub async fn fetch_skill_md_inner(
+    db: Arc<Mutex<Connection>>,
+    id: String,
+) -> Result<Option<String>, String> {
+    // 1. Check cache
+    {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let cached: Option<String> = conn
+            .query_row(
+                "SELECT skill_md FROM skill_cache WHERE id = ?1 AND skill_md IS NOT NULL",
+                params![id],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(content) = cached {
+            return Ok(Some(content));
+        }
+    }
+
+    // 2. Get repo_url
+    let repo_url: Option<String> = {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT repo_url FROM skill_cache WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten()
+    };
+
+    let repo_url = match repo_url {
+        Some(url) => url,
+        None => return Ok(None),
+    };
+
+    // 3. Extract owner/repo — only GitHub repos are supported
+    let (owner, repo) = match extract_github_owner_repo(&repo_url) {
+        Some(pair) => pair,
+        None => return Ok(None),
+    };
+
+    // 4. Fetch SKILL.md — try main then master
+    let client = reqwest::Client::builder()
+        .user_agent("skills-plus-plus/0.1")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut content: Option<String> = None;
+    for branch in ["main", "master"] {
+        let url = format!(
+            "https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/{branch}/SKILL.md"
+        );
+        match client.get(&url).send().await {
+            Ok(r) if r.status().is_success() => {
+                let text = r.text().await.map_err(|e| e.to_string())?;
+                content = Some(strip_frontmatter(&text));
+                break;
+            }
+            _ => continue,
+        }
+    }
+
+    match content {
+        Some(text) => {
+            // 5. Cache
+            let conn = db.lock().map_err(|e| e.to_string())?;
+            conn.execute(
+                "UPDATE skill_cache SET skill_md = ?1 WHERE id = ?2",
+                params![text, id],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(Some(text))
+        }
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn fetch_skill_md(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<Option<String>, String> {
+    fetch_skill_md_inner(std::sync::Arc::clone(&db.0), id).await
 }

@@ -35,6 +35,25 @@ fn read_skill_md(dir: &Path) -> Option<String> {
     None
 }
 
+/// 剥离 YAML frontmatter（首对 `---`），返回正文部分。
+/// 若无 frontmatter 则返回原文。
+pub fn strip_frontmatter(content: &str) -> String {
+    let trimmed = content.trim_start_matches(['\u{feff}', '\n', '\r', ' ', '\t']);
+    let Some(first_line) = trimmed.lines().next() else {
+        return content.to_string();
+    };
+    if first_line.trim() != "---" {
+        return content.to_string();
+    }
+    let rest = &trimmed[first_line.len()..];
+    let Some(end) = rest.find("\n---") else {
+        return content.to_string();
+    };
+    // 跳到 closing `---` 之后
+    let after = &rest[end + 4..];
+    after.strip_prefix('\n').unwrap_or(after).to_string()
+}
+
 /// 取首对 `---` 围起的 frontmatter 文本（不含围栏）。
 fn extract_frontmatter(content: &str) -> Option<String> {
     let trimmed = content.trim_start_matches(['\u{feff}', '\n', '\r', ' ', '\t']);

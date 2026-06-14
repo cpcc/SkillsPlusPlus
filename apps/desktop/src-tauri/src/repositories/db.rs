@@ -48,6 +48,7 @@ fn ensure_v2_columns(conn: &Connection) -> SqliteResult<()> {
     add_column_if_missing(conn, "skill_cache", "install_strategy", "TEXT")?;
     add_column_if_missing(conn, "skill_cache", "archive_url", "TEXT")?;
     add_column_if_missing(conn, "skill_cache", "stars", "INTEGER")?;
+    add_column_if_missing(conn, "skill_cache", "skill_md", "TEXT")?;
     Ok(())
 }
 
@@ -113,7 +114,8 @@ CREATE TABLE IF NOT EXISTS skill_cache (
     cached_at       TEXT NOT NULL DEFAULT (datetime('now')),
     install_strategy TEXT,
     archive_url     TEXT,
-    stars           INTEGER
+    stars           INTEGER,
+    skill_md        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ai_tool_directories (

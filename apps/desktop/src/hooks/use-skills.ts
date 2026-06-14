@@ -33,3 +33,12 @@ export function useSkill(id: string) {
     enabled: !!id,
   });
 }
+
+export function useSkillMd(id: string) {
+  return useQuery({
+    queryKey: ["skill-md", id],
+    queryFn: () => ipc.fetchSkillMd(id),
+    enabled: !!id,
+    staleTime: 1000 * 60 * 30, // 30 min
+  });
+}

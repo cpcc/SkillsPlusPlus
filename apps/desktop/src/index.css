@@ -136,3 +136,62 @@
   --color-info: #2563eb;
   --color-info-subtle: rgba(37, 99, 235, 0.10);
 }
+
+/* ── SKILL.md / Markdown content ─────────────────────────────────────── */
+.prose-skill-md {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--color-text-secondary);
+}
+.prose-skill-md > *:first-child { margin-top: 0; }
+.prose-skill-md > *:last-child { margin-bottom: 0; }
+.prose-skill-md h1 { font-size: 18px; font-weight: 600; color: var(--color-text-primary); margin-top: 1.5em; margin-bottom: 0.5em; }
+.prose-skill-md h2 { font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin-top: 1.5em; margin-bottom: 0.5em; }
+.prose-skill-md h3 { font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-top: 1.25em; margin-bottom: 0.5em; }
+.prose-skill-md h4 { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); margin-top: 1.25em; margin-bottom: 0.5em; }
+.prose-skill-md p { margin-bottom: 0.75em; }
+.prose-skill-md a { color: var(--color-accent); text-decoration: underline; }
+.prose-skill-md a:hover { color: var(--color-accent-hover); }
+.prose-skill-md code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-surface-hover);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+}
+.prose-skill-md pre {
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0.75em 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.prose-skill-md pre code {
+  background: none;
+  padding: 0;
+  border: none;
+  font-size: inherit;
+}
+.prose-skill-md ul, .prose-skill-md ol { padding-left: 1.5em; margin-bottom: 0.75em; }
+.prose-skill-md li { margin-bottom: 0.25em; }
+.prose-skill-md blockquote {
+  border-left: 3px solid var(--color-accent-subtle);
+  padding-left: 12px;
+  margin: 0.75em 0;
+  color: var(--color-text-tertiary);
+}
+.prose-skill-md img { max-width: 100%; border-radius: var(--radius-md); }
+.prose-skill-md hr { border: none; border-top: 1px solid var(--color-border-subtle); margin: 1.25em 0; }
+.prose-skill-md table { width: 100%; border-collapse: collapse; margin: 0.75em 0; font-size: 12px; }
+.prose-skill-md th {
+  text-align: left;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
+}
+.prose-skill-md td { padding: 8px 12px; border-bottom: 1px solid var(--color-border-subtle); }

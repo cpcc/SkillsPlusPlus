@@ -220,6 +220,15 @@ async fn invoke_handler(
             Ok(a) => with_conn(&st, |c| src_cmd::get_skill_inner(c, a.id.clone())),
             Err(e) => Err(e),
         },
+        "fetch_skill_md" => match parse_args::<IdArgs>(&args) {
+            Ok(a) => {
+                let db = Arc::clone(&st.db);
+                src_cmd::fetch_skill_md_inner(db, a.id.clone())
+                    .await
+                    .map(to_json)
+            }
+            Err(e) => Err(e),
+        },
 
         // ── Install ────────────────────────────────────────────────────
         "preview_install" => match parse_args::<PreviewInstallArgs>(&args) {

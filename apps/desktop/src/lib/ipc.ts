@@ -66,6 +66,7 @@ export const ipc = {
     call("refresh_source", { sourceId }),
   refreshAllSources: (): Promise<SkillItem[]> => call("refresh_all_sources"),
   getSkill: (id: string): Promise<SkillItem | null> => call("get_skill", { id }),
+  fetchSkillMd: (id: string): Promise<string | null> => call("fetch_skill_md", { id }),
 
   // Install
   previewInstall: (

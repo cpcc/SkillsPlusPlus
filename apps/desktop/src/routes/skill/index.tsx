@@ -2,18 +2,20 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ExternalLink, GitBranch, Download, Package } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useSkill } from "../../hooks/use-skills";
+import { useSkill, useSkillMd } from "../../hooks/use-skills";
 import { useDirectories } from "../../hooks/use-directories";
 import { useInstallSkill, useInstallTasks } from "../../hooks/use-install";
 import { InstallDialog } from "../../components/install/InstallDialog";
 import { InstallLogPanel } from "../../components/install/InstallLogPanel";
+import { SkillMdContent } from "../../components/SkillMdContent";
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: skill, isLoading } = useSkill(
-    id ? decodeURIComponent(id) : "",
-  );
+  const skillId = id ? decodeURIComponent(id) : "";
+  const { data: skill, isLoading } = useSkill(skillId);
+  const { data: skillMd, isLoading: skillMdLoading, isError: skillMdError } =
+    useSkillMd(skillId);
   const { data: directories = [] } = useDirectories();
   const installMutation = useInstallSkill();
   const { data: tasks = [] } = useInstallTasks();
@@ -161,6 +163,17 @@ export default function SkillDetailPage() {
           详情
         </button>
       </div>
+
+      {/* SKILL.md */}
+      {skill.repoUrl && (
+        <div className="mt-8">
+          <SkillMdContent
+            markdown={skillMd ?? undefined}
+            isLoading={skillMdLoading}
+            isError={skillMdError}
+          />
+        </div>
+      )}
 
       {/* Install logs */}
       {relatedTasks.length > 0 && (
