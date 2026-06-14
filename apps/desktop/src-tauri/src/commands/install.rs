@@ -473,3 +473,12 @@ pub fn list_canonical_skills() -> Result<Vec<CanonicalSkillView>, String> {
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
+
+/// Scan enabled+detected tool directories and import any pre-existing local
+/// skills into `installed_skills`. Idempotent; returns the count of newly
+/// imported rows.
+#[tauri::command]
+pub fn import_existing_skills(db: State<DbState>) -> Result<usize, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    svc::import_existing_skills(&conn).map_err(|e| e.to_string())
+}

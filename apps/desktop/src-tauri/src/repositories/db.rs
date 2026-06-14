@@ -43,6 +43,8 @@ fn ensure_v2_columns(conn: &Connection) -> SqliteResult<()> {
     add_column_if_missing(conn, "installed_skills", "install_strategy", "TEXT NOT NULL DEFAULT 'git'")?;
     add_column_if_missing(conn, "installed_skills", "content_hash", "TEXT")?;
     add_column_if_missing(conn, "installed_skills", "canonical_path", "TEXT")?;
+    add_column_if_missing(conn, "installed_skills", "author", "TEXT")?;
+    add_column_if_missing(conn, "installed_skills", "description", "TEXT")?;
     add_column_if_missing(conn, "skill_cache", "install_strategy", "TEXT")?;
     add_column_if_missing(conn, "skill_cache", "archive_url", "TEXT")?;
     add_column_if_missing(conn, "skill_cache", "stars", "INTEGER")?;
@@ -138,7 +140,9 @@ CREATE TABLE IF NOT EXISTS installed_skills (
     status       TEXT NOT NULL DEFAULT 'ok',
     install_strategy TEXT NOT NULL DEFAULT 'git',
     content_hash TEXT,
-    canonical_path TEXT
+    canonical_path TEXT,
+    author       TEXT,
+    description  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS install_tasks (

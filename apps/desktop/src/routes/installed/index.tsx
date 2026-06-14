@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FolderOpen,
+  FolderInput,
   Trash2,
   RotateCcw,
   AlertCircle,
@@ -21,8 +22,10 @@ import {
   useReinstallSkill,
   useRefreshInstalledSkills,
   useCheckSkillUpdate,
+  useImportExistingSkills,
 } from "../../hooks/use-install";
 import { useDirectories } from "../../hooks/use-directories";
+import { useToast } from "../../components/ui/toast";
 import { InstallDialog } from "../../components/install/InstallDialog";
 import { InstallLogPanel } from "../../components/install/InstallLogPanel";
 import type { InstalledSkill } from "@skills-pp/shared";
@@ -44,6 +47,21 @@ export default function InstalledPage() {
   const reinstallMutation = useReinstallSkill();
   const refreshMutation = useRefreshInstalledSkills();
   const checkUpdateMutation = useCheckSkillUpdate();
+  const importMutation = useImportExistingSkills();
+  const toast = useToast();
+
+  function handleImportLocal() {
+    importMutation.mutate(undefined, {
+      onSuccess: (count) => {
+        if (count > 0) {
+          toast(`导入了 ${count} 个本地 skill`);
+        } else {
+          toast("没有新的本地 skill 可导入");
+        }
+      },
+      onError: (e) => toast("导入失败", String(e), "error"),
+    });
+  }
 
   const [reinstallTarget, setReinstallTarget] = useState<InstalledSkill | null>(null);
   const [actionPendingId, setActionPendingId] = useState<string | null>(null);
@@ -129,18 +147,32 @@ export default function InstalledPage() {
             查看和管理已安装到本机的 skill（共 {installed.length} 个）
           </p>
         </div>
-        <button
-          onClick={() => refreshMutation.mutate()}
-          disabled={refreshMutation.isPending}
-          className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-[6px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
-        >
-          {refreshMutation.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          刷新状态
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleImportLocal}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-[6px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+          >
+            {importMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FolderInput className="h-3.5 w-3.5" />
+            )}
+            导入本地
+          </button>
+          <button
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending}
+            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] px-3 py-[6px] text-[13px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+          >
+            {refreshMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            刷新状态
+          </button>
+        </div>
       </div>
 
       {/* Recent install tasks */}
@@ -193,12 +225,20 @@ export default function InstalledPage() {
                       onClick={() => {
                         if (skill.skillId) {
                           navigate(`/skill/${encodeURIComponent(skill.skillId!)}`);
+                        } else {
+                          handleOpenDir(skill);
                         }
                       }}
                       className="truncate text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-accent-text)]"
+                      title={skill.skillId ? "查看详情" : "打开目录"}
                     >
                       {skill.name}
                     </button>
+                    {skill.author && (
+                      <span className="shrink-0 text-[11px] text-[var(--color-text-tertiary)]">
+                        by {skill.author}
+                      </span>
+                    )}
                     <span
                       className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-[1px] text-[11px] ${cfg.cls}`}
                     >
@@ -206,6 +246,14 @@ export default function InstalledPage() {
                       {cfg.label}
                     </span>
                   </div>
+                  {skill.description && (
+                    <p
+                      className="mt-0.5 truncate text-[12px] text-[var(--color-text-secondary)]"
+                      title={skill.description}
+                    >
+                      {skill.description}
+                    </p>
+                  )}
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-text-tertiary)]">
                     <span>{skill.toolName}</span>
                     <span className="truncate font-mono text-[10px]" title={skillPath}>

@@ -8,6 +8,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Whether a filesystem entry name is hidden / non-skill (starts with `.`).
+fn is_hidden(name: &str) -> bool {
+    name.starts_with('.')
+}
+
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
 /// Build the target path: `<directory_path>/<skill_name>`
@@ -552,7 +557,8 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
         "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
                 COALESCE(d.path, '') as directory_path, \
                 i.source_id, i.repo_url, i.installed_at, i.status, \
-                i.install_strategy, i.content_hash, i.canonical_path \
+                i.install_strategy, i.content_hash, i.canonical_path, \
+                i.author, i.description \
          FROM installed_skills i \
          LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
          ORDER BY i.installed_at DESC",
@@ -573,6 +579,8 @@ pub fn list_installed_skills(conn: &Connection) -> SqliteResult<Vec<InstalledSki
             install_strategy: crate::models::InstallStrategy::parse(&strategy_s),
             content_hash: row.get(11)?,
             canonical_path: row.get(12)?,
+            author: row.get(13)?,
+            description: row.get(14)?,
         })
     })?;
     rows.collect()
@@ -593,6 +601,285 @@ pub fn list_install_tasks(conn: &Connection, limit: i64) -> SqliteResult<Vec<(St
         ))
     })?;
     rows.collect()
+}
+
+// ─── Import existing local skills ─────────────────────────────────────────────
+
+/// Best-effort: read `<skill_dir>/.git/config` and return the `[remote "origin"]` url.
+fn extract_git_origin(skill_dir: &Path) -> Option<String> {
+    let config_path = skill_dir.join(".git").join("config");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let mut in_origin = false;
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.starts_with('[') {
+            in_origin = line == "[remote \"origin\"]";
+            continue;
+        }
+        if in_origin {
+            // match: url = <value>
+            if let Some(rest) = line.strip_prefix("url") {
+                let rest = rest.trim_start();
+                let rest = rest.strip_prefix('=').unwrap_or(rest).trim();
+                if !rest.is_empty() {
+                    return Some(rest.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Locate the SKILL.md inside a skill directory (case-insensitive on the
+/// filename). Returns `None` if not found.
+fn find_skill_md(skill_dir: &Path) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(skill_dir).ok()?.flatten() {
+        if let Some(name) = entry.file_name().to_str() {
+            if name.eq_ignore_ascii_case("SKILL.md") {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
+}
+
+/// Parse a YAML-frontmatter block at the top of `SKILL.md` (or the entry
+/// file itself when `skill_path` is a `.md` file). Returns `(author, description)`.
+///
+/// Recognises a leading `---` block; for each `key: value` line inside it,
+/// extracts `description` (may be quoted / multi-line via `>-` not supported —
+/// single-line only) and `author`. Falls back to `description` from the first
+/// non-heading paragraph after the frontmatter.
+fn parse_skill_meta(skill_path: &Path) -> (Option<String>, Option<String>) {
+    let content = match std::fs::read_to_string(skill_path) {
+        Ok(c) => c,
+        Err(_) => return (None, None),
+    };
+    let mut lines = content.lines();
+
+    let mut in_fm = false;
+    let mut started_fm = false;
+    let mut author: Option<String> = None;
+    let mut description: Option<String> = None;
+    let mut body_first_line: Option<String> = None;
+
+    for line in lines.by_ref() {
+        let trimmed = line.trim();
+        if !started_fm && trimmed == "---" {
+            in_fm = true;
+            started_fm = true;
+            continue;
+        }
+        if in_fm {
+            if trimmed == "---" || trimmed == "..." {
+                in_fm = false;
+                continue;
+            }
+            // key: value
+            if let Some((k, v)) = split_yaml_kv(line) {
+                let key = k.to_ascii_lowercase();
+                match key.as_str() {
+                    "author" => {
+                        if author.is_none() {
+                            author = Some(unquote_yaml(v));
+                        }
+                    }
+                    "description" => {
+                        if description.is_none() {
+                            description = Some(unquote_yaml(v));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        // Body: capture first non-empty, non-heading line as a description fallback.
+        if body_first_line.is_none() && !trimmed.is_empty() {
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            body_first_line = Some(trimmed.to_string());
+        }
+    }
+
+    let description = description.or(body_first_line);
+    (author, description)
+}
+
+fn split_yaml_kv(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim_start_matches(|c: char| c == '\t' || c == ' ');
+    let idx = line.find(':')?;
+    let key = &line[..idx];
+    let mut value = &line[idx + 1..];
+    value = value.trim();
+    // Skip YAML list / nested keys.
+    if value.is_empty() {
+        return None;
+    }
+    Some((key, value))
+}
+
+fn unquote_yaml(v: &str) -> String {
+    let v = v.trim();
+    if v.len() >= 2 {
+        let first = v.chars().next().unwrap();
+        let last = v.chars().last().unwrap();
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return v[1..v.len() - 1].to_string();
+        }
+    }
+    v.to_string()
+}
+
+/// Format a `SystemTime` as an RFC 3339 string (UTC). Returns None on error.
+fn system_time_to_rfc3339(time: SystemTime) -> Option<String> {
+    let dur = time.duration_since(UNIX_EPOCH).ok()?;
+    let secs = dur.as_secs();
+    // Use SQLite datetime via seconds → rfc3339 manually.
+    let days = (secs / 86400) as i64;
+    let rem = (secs % 86400) as i64;
+    let h = rem / 3600;
+    let m = (rem % 3600) / 60;
+    let s = rem % 60;
+    // Days since 1970-01-01 → civil date (Howard Hinnant's algorithm).
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    Some(format!(
+        "{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z"
+    ))
+}
+
+/// Scan all enabled, detected tool directories and register any pre-existing
+/// skill folders / files into `installed_skills`. Idempotent: existing records
+/// (matched by `(name, directory_id)`) are left untouched.
+///
+/// Returns the number of newly inserted rows.
+pub fn import_existing_skills(conn: &Connection) -> SqliteResult<usize> {
+    // Load enabled+detected directories.
+    let dirs: Vec<(String, String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, tool_name, path FROM ai_tool_directories \
+             WHERE enabled = 1 AND is_detected = 1",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    let mut inserted = 0usize;
+
+    for (directory_id, tool_name, dir_path) in dirs {
+        let path = PathBuf::from(&dir_path);
+        let entries = match std::fs::read_dir(&path) {
+            Ok(e) => e,
+            Err(_) => continue, // Directory missing / unreadable — skip.
+        };
+
+        // Collect candidate (name, is_dir) pairs in this directory.
+        let mut candidates: Vec<(String, bool)> = Vec::new();
+        for entry in entries.flatten() {
+            let file_name = match entry.file_name().to_str() {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if is_hidden(&file_name) {
+                continue;
+            }
+            let ft = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if ft.is_dir() {
+                // Skip empty directories.
+                let is_empty = std::fs::read_dir(entry.path())
+                    .map(|mut d| d.next().is_none())
+                    .unwrap_or(true);
+                if is_empty {
+                    continue;
+                }
+                candidates.push((file_name, true));
+            } else if ft.is_file() {
+                let ext_ok = Path::new(&file_name)
+                    .extension()
+                    .map(|x| x == "md" || x == "yaml" || x == "yml")
+                    .unwrap_or(false);
+                if ext_ok {
+                    candidates.push((file_name, false));
+                }
+            }
+        }
+
+        for (skill_name, is_dir) in candidates {
+            // Already present? (idempotent check — do not overwrite user-installed rows)
+            let exists: bool = conn
+                .query_row(
+                    "SELECT 1 FROM installed_skills WHERE name = ?1 AND directory_id = ?2",
+                    params![skill_name, directory_id],
+                    |_| Ok(()),
+                )
+                .is_ok();
+            if exists {
+                continue;
+            }
+
+            let skill_path = path.join(&skill_name);
+            let repo_url = if is_dir {
+                extract_git_origin(&skill_path)
+            } else {
+                None
+            };
+
+            // Parse author/description from SKILL.md frontmatter (or the file
+            // itself when the entry is a standalone `.md`).
+            let (author, description) = if is_dir {
+                find_skill_md(&skill_path)
+                    .map(|p| parse_skill_meta(&p))
+                    .unwrap_or((None, None))
+            } else {
+                parse_skill_meta(&skill_path)
+            };
+
+            let installed_at = {
+                let mtime_target = if is_dir {
+                    skill_path.join(".git")
+                } else {
+                    skill_path.clone()
+                };
+                std::fs::metadata(&mtime_target)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(system_time_to_rfc3339)
+            };
+
+            let id = uuid::Uuid::new_v4().to_string();
+            let inst_at = installed_at.as_deref();
+
+            conn.execute(
+                "INSERT INTO installed_skills \
+                 (id, skill_id, name, tool_name, directory_id, source_id, repo_url, installed_at, status, author, description) \
+                 VALUES (?1, NULL, ?2, ?3, ?4, NULL, ?5, \
+                         COALESCE(?6, datetime('now')), 'ok', ?7, ?8)",
+                params![id, skill_name, tool_name, directory_id, repo_url, inst_at, author, description],
+            )?;
+            inserted += 1;
+        }
+    }
+
+    Ok(inserted)
 }
 
 // ─── Status refresh ──────────────────────────────────────────────────────────
@@ -711,7 +998,8 @@ pub fn refresh_single_skill_status(
     let skill = conn.query_row(
         "SELECT i.id, i.skill_id, i.name, i.tool_name, i.directory_id, \
                 COALESCE(d.path, ''), i.source_id, i.repo_url, i.installed_at, i.status, \
-                i.install_strategy, i.content_hash, i.canonical_path \
+                i.install_strategy, i.content_hash, i.canonical_path, \
+                i.author, i.description \
          FROM installed_skills i \
          LEFT JOIN ai_tool_directories d ON i.directory_id = d.id \
          WHERE i.id = ?1",
@@ -732,6 +1020,8 @@ pub fn refresh_single_skill_status(
                 install_strategy: crate::models::InstallStrategy::parse(&strategy_s),
                 content_hash: row.get(11)?,
                 canonical_path: row.get(12)?,
+                author: row.get(13)?,
+                description: row.get(14)?,
             })
         },
     );
@@ -1015,5 +1305,239 @@ mod tests {
         assert_eq!(mo, 6);
         assert_eq!(d, 13);
         assert_eq!((h, mi, s), (12, 0, 0));
+    }
+
+    // ─── import_existing_skills tests ────────────────────────────────────────
+
+    fn open_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ai_tool_directories (
+                id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, path TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0, is_detected INTEGER NOT NULL DEFAULT 0,
+                writable INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+                skill_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE installed_skills (
+                id TEXT PRIMARY KEY, skill_id TEXT, name TEXT NOT NULL, tool_name TEXT NOT NULL,
+                directory_id TEXT NOT NULL, source_id TEXT, repo_url TEXT,
+                installed_at TEXT NOT NULL DEFAULT (datetime('now')), status TEXT NOT NULL DEFAULT 'ok',
+                author TEXT, description TEXT
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn is_hidden_detects_dotfiles() {
+        assert!(is_hidden(".git"));
+        assert!(is_hidden(".DS_Store"));
+        assert!(!is_hidden("my-skill"));
+        assert!(!is_hidden("README.md"));
+    }
+
+    #[test]
+    fn import_existing_skills_imports_subdir() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_import_subdir");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        // One subdir with content (skill), one empty subdir (skipped), one .md file (skill).
+        let skill_a = tmp.join("skill-a");
+        fs::create_dir_all(&skill_a).unwrap();
+        fs::write(skill_a.join("SKILL.md"), "x").unwrap();
+        fs::create_dir_all(tmp.join("empty")).unwrap();
+        fs::write(tmp.join("standalone.md"), "y").unwrap();
+        // Non-skill file extension ignored.
+        fs::write(tmp.join("notes.txt"), "z").unwrap();
+        // Hidden file ignored.
+        fs::write(tmp.join(".DS_Store"), "").unwrap();
+
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO ai_tool_directories (id, tool_name, path, is_detected, enabled) \
+             VALUES ('d1', 'Claude', ?1, 1, 1)",
+            params![tmp.to_string_lossy()],
+        )
+        .unwrap();
+
+        let n = import_existing_skills(&conn).unwrap();
+        assert_eq!(n, 2); // skill-a + standalone.md
+
+        // Idempotent: re-running inserts nothing.
+        let n2 = import_existing_skills(&conn).unwrap();
+        assert_eq!(n2, 0);
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM installed_skills WHERE directory_id = 'd1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn import_existing_skills_preserves_user_records() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_import_idem");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let skill_dir = tmp.join("real-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "x").unwrap();
+
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO ai_tool_directories (id, tool_name, path, is_detected, enabled) \
+             VALUES ('d1', 'Claude', ?1, 1, 1)",
+            params![tmp.to_string_lossy()],
+        )
+        .unwrap();
+
+        // Pre-existing user record (with repo_url, source_id — should NOT be overwritten).
+        conn.execute(
+            "INSERT INTO installed_skills \
+             (id, skill_id, name, tool_name, directory_id, source_id, repo_url, status) \
+             VALUES ('u1', 'sk1', 'real-skill', 'Claude', 'd1', 'skills_sh', 'https://github.com/x/y', 'ok')",
+            [],
+        )
+        .unwrap();
+
+        let n = import_existing_skills(&conn).unwrap();
+        assert_eq!(n, 0); // existing row skipped
+
+        // Verify the user's repo_url was preserved.
+        let repo: Option<String> = conn
+            .query_row(
+                "SELECT repo_url FROM installed_skills WHERE id = 'u1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(repo.as_deref(), Some("https://github.com/x/y"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn extract_git_origin_parses_remote() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_git_origin");
+        let _ = fs::remove_dir_all(&tmp);
+        let git_dir = tmp.join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::write(
+            git_dir.join("config"),
+            "[core]\n\trepositoryformatversion = 0\n\
+             [remote \"origin\"]\n\turl = https://github.com/foo/bar.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\
+             [remote \"upstream\"]\n\turl = https://github.com/up/u.git\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            extract_git_origin(&tmp).as_deref(),
+            Some("https://github.com/foo/bar.git")
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn extract_git_origin_returns_none_without_git() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_git_origin_none");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        assert!(extract_git_origin(&tmp).is_none());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn import_existing_skills_skips_disabled_directories() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_import_disabled");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::create_dir_all(tmp.join("skill-x")).unwrap();
+        fs::write(tmp.join("skill-x").join("a.md"), "y").unwrap();
+
+        let conn = open_test_db();
+        // enabled = 0 → must be skipped
+        conn.execute(
+            "INSERT INTO ai_tool_directories (id, tool_name, path, is_detected, enabled) \
+             VALUES ('d1', 'Claude', ?1, 1, 0)",
+            params![tmp.to_string_lossy()],
+        )
+        .unwrap();
+
+        let n = import_existing_skills(&conn).unwrap();
+        assert_eq!(n, 0);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn parse_skill_meta_reads_frontmatter() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_meta_fm");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let md = tmp.join("SKILL.md");
+        fs::write(
+            &md,
+            "---\nname: playwright-cli\ndescription: \"Automate browser stuff.\"\nauthor: jane\n---\n\n# Heading\n\nBody text.\n",
+        )
+        .unwrap();
+        let (author, desc) = parse_skill_meta(&md);
+        assert_eq!(author.as_deref(), Some("jane"));
+        assert_eq!(desc.as_deref(), Some("Automate browser stuff."));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn parse_skill_meta_falls_back_to_first_paragraph() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_meta_fb");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let md = tmp.join("SKILL.md");
+        fs::write(&md, "# Title\n\nThis is the first paragraph.\n").unwrap();
+        let (author, desc) = parse_skill_meta(&md);
+        assert!(author.is_none());
+        assert_eq!(desc.as_deref(), Some("This is the first paragraph."));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn import_existing_skills_captures_meta() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_import_meta");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let skill_dir = tmp.join("meta-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nauthor: alice\ndescription: Does cool stuff.\n---\n\n# Body\n",
+        )
+        .unwrap();
+
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO ai_tool_directories (id, tool_name, path, is_detected, enabled) \
+             VALUES ('d1', 'Claude', ?1, 1, 1)",
+            params![tmp.to_string_lossy()],
+        )
+        .unwrap();
+
+        import_existing_skills(&conn).unwrap();
+        let (author, desc): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT author, description FROM installed_skills WHERE directory_id = 'd1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(author.as_deref(), Some("alice"));
+        assert_eq!(desc.as_deref(), Some("Does cool stuff."));
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

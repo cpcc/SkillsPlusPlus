@@ -156,4 +156,6 @@ pub struct InstalledSkillRow {
     pub content_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub canonical_path: Option<String>,
+    pub author: Option<String>,
+    pub description: Option<String>,
 }

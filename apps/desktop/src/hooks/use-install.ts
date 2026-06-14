@@ -32,6 +32,16 @@ export function useCheckSkillUpdate() {
   });
 }
 
+export function useImportExistingSkills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => ipc.importExistingSkills(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: INSTALLED_KEY });
+    },
+  });
+}
+
 export function useInstallTasks() {
   return useQuery({
     queryKey: TASKS_KEY,

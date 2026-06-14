@@ -31,6 +31,12 @@ pub fn run() {
             db::migrate(&conn).expect("Failed to run database migrations");
             db::seed_sources(&conn).expect("Failed to seed sources");
 
+            // Best-effort: import pre-existing local skills so they appear in
+            // the 「已安装」page without needing a manual install.
+            if let Err(e) = services::install::import_existing_skills(&conn) {
+                eprintln!("[import_existing_skills] startup import failed: {e}");
+            }
+
             let db_arc = Arc::new(Mutex::new(conn));
             app.manage(DbState(std::sync::Arc::clone(&db_arc)));
 
@@ -69,6 +75,7 @@ pub fn run() {
             commands::install::check_skill_update,
             commands::install::read_lockfile,
             commands::install::list_canonical_skills,
+            commands::install::import_existing_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

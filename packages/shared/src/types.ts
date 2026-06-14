@@ -55,6 +55,8 @@ export type InstalledSkill = {
   installStrategy: InstallStrategy;
   contentHash?: string;
   canonicalPath?: string;
+  author?: string;
+  description?: string;
 };
 
 // ===== 安装任务 =====

@@ -93,6 +93,7 @@ export const ipc = {
   checkGitAvailable: (): Promise<boolean> => call("check_git_available"),
   refreshInstalledSkills: (): Promise<InstalledSkill[]> => call("refresh_installed_skills"),
   checkSkillUpdate: (skillId: string): Promise<InstalledSkill> => call("check_skill_update", { skillId }),
+  importExistingSkills: (): Promise<number> => call("import_existing_skills"),
 
   // Canonical store / lockfile（与 npx skills 互通）
   readLockfile: (): Promise<Record<string, LockEntry>> => call("read_lockfile"),
