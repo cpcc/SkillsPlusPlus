@@ -4,10 +4,7 @@ import { ChevronDown } from "lucide-react";
 interface Props {
   sources: SkillSource[];
   selectedSource: string;
-  selectedTool: string;
   onSourceChange: (v: string) => void;
-  onToolChange: (v: string) => void;
-  allTools: string[];
 }
 
 function SelectWrapper({
@@ -31,10 +28,7 @@ const selectCls =
 export function FilterBar({
   sources,
   selectedSource,
-  selectedTool,
   onSourceChange,
-  onToolChange,
-  allTools,
 }: Props) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -51,21 +45,6 @@ export function FilterBar({
                 {s.name}
               </option>
             ))}
-        </select>
-      </SelectWrapper>
-
-      <SelectWrapper>
-        <select
-          className={selectCls}
-          value={selectedTool}
-          onChange={(e) => onToolChange(e.target.value)}
-        >
-          <option value="">全部工具</option>
-          {allTools.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
         </select>
       </SelectWrapper>
     </div>

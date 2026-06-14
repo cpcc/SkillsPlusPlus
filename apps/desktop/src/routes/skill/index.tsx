@@ -112,21 +112,6 @@ export default function SkillDetailPage() {
           </DetailRow>
         )}
 
-        {skill.compatibleTools && skill.compatibleTools.length > 0 && (
-          <DetailRow label="兼容工具">
-            <div className="flex flex-wrap gap-1.5">
-              {skill.compatibleTools.map((t) => (
-                <span
-                  key={t}
-                  className="rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent)]"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          </DetailRow>
-        )}
-
         {skill.tags.length > 0 && (
           <DetailRow label="标签">
             <div className="flex flex-wrap gap-1.5">

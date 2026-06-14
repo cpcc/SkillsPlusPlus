@@ -13,14 +13,6 @@ import { useToast } from "../../components/ui/toast";
 
 const PAGE = 24;
 
-function useUniqueTools(skills: SkillItem[]) {
-  return useMemo(() => {
-    const set = new Set<string>();
-    for (const s of skills) s.compatibleTools?.forEach((t) => set.add(t));
-    return Array.from(set).sort();
-  }, [skills]);
-}
-
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -66,10 +58,7 @@ export default function DiscoverPage() {
 
   const [query, setQuery] = useState("");
   const [selectedSource, setSelectedSource] = useState("skills_sh");
-  const [selectedTool, setSelectedTool] = useState("");
   const debouncedQuery = useDebounced(query, 300);
-
-  const allTools = useUniqueTools(skills);
 
   // Auto-refresh on first mount if cache is empty
   useEffect(() => {
@@ -85,7 +74,6 @@ export default function DiscoverPage() {
     const q = debouncedQuery.toLowerCase();
     return skills.filter((s) => {
       if (selectedSource && s.sourceId !== selectedSource) return false;
-      if (selectedTool && !s.compatibleTools?.includes(selectedTool)) return false;
       if (q) {
         return (
           s.name.toLowerCase().includes(q) ||
@@ -96,7 +84,7 @@ export default function DiscoverPage() {
       }
       return true;
     });
-  }, [skills, debouncedQuery, selectedSource, selectedTool]);
+  }, [skills, debouncedQuery, selectedSource]);
 
   // 在线搜索：查询长度 >= 2 时始终与本地并行搜索
   const enableOnline = debouncedQuery.trim().length >= 2;
@@ -111,7 +99,7 @@ export default function DiscoverPage() {
   }, [rawOnline, filtered]);
 
   // 独立分页
-  const localScroll = useInfiniteScroll(filtered, `${debouncedQuery}|${selectedSource}|${selectedTool}`);
+  const localScroll = useInfiniteScroll(filtered, `${debouncedQuery}|${selectedSource}`);
   const onlineScroll = useInfiniteScroll(onlineResults, debouncedQuery);
 
   const showOnlineSection =
@@ -169,10 +157,7 @@ export default function DiscoverPage() {
         <FilterBar
           sources={sources}
           selectedSource={selectedSource}
-          selectedTool={selectedTool}
           onSourceChange={setSelectedSource}
-          onToolChange={setSelectedTool}
-          allTools={allTools}
         />
       </div>
 

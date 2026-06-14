@@ -53,14 +53,6 @@ export function SkillCard({ skill }: Props) {
             {tag}
           </span>
         ))}
-        {skill.compatibleTools?.slice(0, 2).map((tool) => (
-          <span
-            key={tool}
-            className="rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent)]"
-          >
-            {tool}
-          </span>
-        ))}
       </div>
     </button>
   );
