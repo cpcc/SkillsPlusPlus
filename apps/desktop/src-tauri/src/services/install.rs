@@ -948,22 +948,41 @@ pub fn import_existing_skills(conn: &Connection) -> SqliteResult<usize> {
 
 /// Compute real status for an installed skill by checking the filesystem.
 /// Returns "ok", "missing", or "changed".
-fn compute_skill_status(skill_name: &str, directory_path: &str) -> &'static str {
+/// `canonical_path` is used as a fallback for skills_cli strategy where the
+/// symlink name may differ from the DB skill name (matched from SKILL.md frontmatter).
+fn compute_skill_status(skill_name: &str, directory_path: &str, canonical_path: Option<&str>) -> &'static str {
     if directory_path.is_empty() {
         return "missing";
     }
     let target = target_path(directory_path, skill_name);
-    if !target.exists() || !target.is_dir() {
-        return "missing";
+
+    let check_dir = |path: &Path| -> &'static str {
+        if !path.exists() || !path.is_dir() {
+            return "missing";
+        }
+        let has_content = std::fs::read_dir(path)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false);
+        if !has_content {
+            return "changed";
+        }
+        "ok"
+    };
+
+    let status = check_dir(&target);
+
+    // Fallback for skills_cli: the symlink is named from SKILL.md frontmatter,
+    // not the raw skill name. Check the canonical path directly.
+    if status == "missing" {
+        if let Some(cp) = canonical_path.filter(|p| !p.is_empty()) {
+            let canonical = PathBuf::from(cp);
+            if canonical != target {
+                return check_dir(&canonical);
+            }
+        }
     }
-    // Check if directory is non-empty
-    let has_content = std::fs::read_dir(&target)
-        .map(|mut d| d.next().is_some())
-        .unwrap_or(false);
-    if !has_content {
-        return "changed";
-    }
-    "ok"
+
+    status
 }
 
 /// Refresh status of all installed skills by scanning filesystem, then update DB.
@@ -972,7 +991,7 @@ pub fn refresh_installed_status(conn: &Connection) -> SqliteResult<Vec<Installed
     // Load all installed skills with directory paths
     let mut skills = list_installed_skills(conn)?;
     for skill in &mut skills {
-        let real_status = compute_skill_status(&skill.name, &skill.directory_path);
+        let real_status = compute_skill_status(&skill.name, &skill.directory_path, skill.canonical_path.as_deref());
         if real_status != skill.status {
             // Update DB
             conn.execute(
@@ -1090,7 +1109,7 @@ pub fn refresh_single_skill_status(
 
     match skill {
         Ok(mut s) => {
-            let mut new_status = compute_skill_status(&s.name, &s.directory_path).to_string();
+            let mut new_status = compute_skill_status(&s.name, &s.directory_path, s.canonical_path.as_deref()).to_string();
 
             if new_status == "ok" {
                 let target = target_path(&s.directory_path, &s.name);
@@ -1236,8 +1255,8 @@ mod tests {
 
     #[test]
     fn compute_status_missing_when_no_dir() {
-        assert_eq!(compute_skill_status("test", ""), "missing");
-        assert_eq!(compute_skill_status("test", "/nonexistent/path/12345"), "missing");
+        assert_eq!(compute_skill_status("test", "", None), "missing");
+        assert_eq!(compute_skill_status("test", "/nonexistent/path/12345", None), "missing");
     }
 
     #[test]
@@ -1249,7 +1268,7 @@ mod tests {
         // Create a file so it's non-empty
         let _ = fs::write(skill_dir.join("README.md"), "# test");
 
-        assert_eq!(compute_skill_status("my-skill", &tmp.to_string_lossy()), "ok");
+        assert_eq!(compute_skill_status("my-skill", &tmp.to_string_lossy(), None), "ok");
 
         let _ = fs::remove_dir_all(&tmp);
     }
@@ -1261,7 +1280,37 @@ mod tests {
         let skill_dir = tmp.join("empty-skill");
         let _ = fs::create_dir_all(&skill_dir);
 
-        assert_eq!(compute_skill_status("empty-skill", &tmp.to_string_lossy()), "changed");
+        assert_eq!(compute_skill_status("empty-skill", &tmp.to_string_lossy(), None), "changed");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn compute_status_uses_canonical_fallback_for_skills_cli() {
+        let tmp = std::env::temp_dir().join("skills_pp_test_status_canonical");
+        let _ = fs::remove_dir_all(&tmp);
+        let agent_dir = tmp.join("agent_skills");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        // DB name differs from actual symlink name (skills_cli scenario)
+        let canonical = tmp.join("canonical_store").join("seo");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::write(canonical.join("SKILL.md"), "# test").unwrap();
+
+        // No symlink at agent_dir/Agentic-SEO-Skill → would be "missing" without fallback
+        assert_eq!(
+            compute_skill_status("Agentic-SEO-Skill", &agent_dir.to_string_lossy(), None),
+            "missing"
+        );
+        // With canonical path fallback → "ok"
+        assert_eq!(
+            compute_skill_status(
+                "Agentic-SEO-Skill",
+                &agent_dir.to_string_lossy(),
+                Some(&canonical.to_string_lossy())
+            ),
+            "ok"
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }
