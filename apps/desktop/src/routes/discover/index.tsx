@@ -6,6 +6,7 @@ import {
   useRefreshAllSources,
   useOnlineSearch,
 } from "../../hooks/use-skills";
+import { useSources } from "../../hooks/use-sources";
 import { SkillCard } from "./SkillCard";
 import { FilterBar } from "./FilterBar";
 import { useToast } from "../../components/ui/toast";
@@ -59,10 +60,12 @@ function useInfiniteScroll<T>(items: T[], resetKey: string) {
 
 export default function DiscoverPage() {
   const { data: skills = [], isLoading } = useSkills();
+  const { data: sources = [] } = useSources();
   const refresh = useRefreshAllSources();
   const toast = useToast();
 
   const [query, setQuery] = useState("");
+  const [selectedSource, setSelectedSource] = useState("skills_sh");
   const [selectedTool, setSelectedTool] = useState("");
   const debouncedQuery = useDebounced(query, 300);
 
@@ -78,11 +81,10 @@ export default function DiscoverPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 
-  // 硬过滤：Discover 页只展示 skills.sh 来源
   const filtered = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
     return skills.filter((s) => {
-      if (s.sourceId !== "skills_sh") return false;
+      if (selectedSource && s.sourceId !== selectedSource) return false;
       if (selectedTool && !s.compatibleTools?.includes(selectedTool)) return false;
       if (q) {
         return (
@@ -94,7 +96,7 @@ export default function DiscoverPage() {
       }
       return true;
     });
-  }, [skills, debouncedQuery, selectedTool]);
+  }, [skills, debouncedQuery, selectedSource, selectedTool]);
 
   // 在线搜索：查询长度 >= 2 时始终与本地并行搜索
   const enableOnline = debouncedQuery.trim().length >= 2;
@@ -109,7 +111,7 @@ export default function DiscoverPage() {
   }, [rawOnline, filtered]);
 
   // 独立分页
-  const localScroll = useInfiniteScroll(filtered, `${debouncedQuery}|${selectedTool}`);
+  const localScroll = useInfiniteScroll(filtered, `${debouncedQuery}|${selectedSource}|${selectedTool}`);
   const onlineScroll = useInfiniteScroll(onlineResults, debouncedQuery);
 
   const showOnlineSection =
@@ -165,7 +167,10 @@ export default function DiscoverPage() {
       {/* Filters */}
       <div className="mt-3">
         <FilterBar
+          sources={sources}
+          selectedSource={selectedSource}
           selectedTool={selectedTool}
+          onSourceChange={setSelectedSource}
           onToolChange={setSelectedTool}
           allTools={allTools}
         />
