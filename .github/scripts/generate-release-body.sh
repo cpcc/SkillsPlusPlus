@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: ./generate-release-body.sh <tag>
-# Generates a multilingual release body (zh-CN default, en, ja) for skills++ releases.
+# Generates a Chinese-only release body for skills++ releases.
 set -euo pipefail
 
 TAG="${1:?Usage: $0 <tag>}"
@@ -52,17 +52,12 @@ cat << BODY
 <!--
 ######################################################################
   skills++ v${VERSION}
-  中文（默认） | English | 日本語
+  中文
   Generated: ${RELEASE_DATE}
-  DO NOT remove the anchor markers—they are used for language links.
 ######################################################################
 -->
 
 # skills++ v${VERSION}
-
-<p align="center">
-  <a href="#english">English</a> · <a href="#japanese">日本語</a>
-</p>
 
 ---
 
@@ -110,53 +105,5 @@ ${CONTRIBUTORS}
 - skills++-v${VERSION}-Windows-x86_64.msi
 
 > 各文件 SHA256 校验和见下方 Assets 列表。
-
----
-
-<div id="english"></div>
-
-## skills++ v${VERSION} — English
-
-**Release Date**: ${RELEASE_DATE}
-**Update Size**: ${COMMITS} commits · ${FILES_CHANGED} files changed · +${INSERTIONS} / -${DELETIONS}
-
-### ✨ Features
-
-${FEAT_COMMITS}
-
-### 🐛 Bug Fixes
-
-${FIX_COMMITS}
-
-### 🔧 Other Changes
-
-${OTHER_COMMITS}
-
-**Contributors**:
-${CONTRIBUTORS}
-
----
-
-<div id="japanese"></div>
-
-## skills++ v${VERSION} — 日本語
-
-**リリース日**: ${RELEASE_DATE}
-**更新規模**: ${COMMITS} commits · ${FILES_CHANGED} files changed · +${INSERTIONS} / -${DELETIONS}
-
-### ✨ 新機能
-
-${FEAT_COMMITS}
-
-### 🐛 バグ修正
-
-${FIX_COMMITS}
-
-### 🔧 その他の変更
-
-${OTHER_COMMITS}
-
-**コントリビューター**:
-${CONTRIBUTORS}
 
 BODY
