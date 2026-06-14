@@ -78,7 +78,10 @@ pub fn load_skills(conn: &Connection, source_ids: &[String]) -> Result<Vec<Skill
     let ph: String = (1..=source_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
     let sql = format!(
         "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars \
-         FROM skill_cache WHERE source_id IN ({ph}) ORDER BY name"
+         FROM skill_cache WHERE source_id IN ({ph}) \
+         ORDER BY CASE source_id WHEN 'skills_sh' THEN 0 ELSE 1 END, \
+                  stars DESC NULLS LAST, \
+                  name COLLATE NOCASE"
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let params_refs: Vec<&dyn rusqlite::ToSql> = source_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
