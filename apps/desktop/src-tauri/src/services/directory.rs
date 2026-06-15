@@ -10,9 +10,16 @@ struct ToolRule {
 }
 
 const TOOL_RULES: &[ToolRule] = &[
+    // 通用共享目录（~/.agents/skills）：被 Amp / Cline / Codex / Cursor /
+    // Deep Agents / Gemini CLI / GitHub Copilot / Kimi / OpenCode / Warp / Zed
+    // 等几乎所有主流 AI 工具读取，因此以单条 "Agents" 条目展示，避免重复。
+    ToolRule {
+        tool_name: "Agents",
+        candidate_paths: &[".agents/skills"],
+    },
     ToolRule {
         tool_name: "Codex",
-        candidate_paths: &[".codex/skills", ".agents/skills"],
+        candidate_paths: &[".codex/skills"],
     },
     ToolRule {
         tool_name: "Claude",
@@ -33,6 +40,23 @@ const TOOL_RULES: &[ToolRule] = &[
     ToolRule {
         tool_name: "Antigravity",
         candidate_paths: &[".antigravity/skills"],
+    },
+    // Antigravity CLI（与 Gemini CLI 共享 ~/.gemini 根目录的独立子目录）
+    ToolRule {
+        tool_name: "Antigravity CLI",
+        candidate_paths: &[".gemini/antigravity/skills"],
+    },
+    ToolRule {
+        tool_name: "Amp",
+        candidate_paths: &[".config/agents/skills"],
+    },
+    ToolRule {
+        tool_name: "Cline",
+        candidate_paths: &[".cline/skills"],
+    },
+    ToolRule {
+        tool_name: "Warp",
+        candidate_paths: &[".warp/skills"],
     },
     ToolRule {
         tool_name: "Gemini CLI",
@@ -142,6 +166,19 @@ pub fn seed_default_directories(conn: &Connection) -> SqliteResult<()> {
             )?;
         }
     }
+
+    // 老版本把 `~/.agents/skills` 作为 Codex 的第二条候选路径写入，生成
+    // 固定 id `codex-1`。新版本把 `.agents/skills` 提升为独立的 "Agents"
+    // 条目（id `agents-0`）。需要清理遗留的 `codex-1` 行，但 installed_skills
+    // 有 FK 引用 directory_id（ON DELETE NO ACTION），所以必须先把历史安装
+    // 记录重新归属到 `agents-0`（同一物理目录，迁移是无副作用的），再删除 codex-1。
+    // 必须在 INSERT 循环之后执行，确保 agents-0 已存在以满足 FK 约束。
+    conn.execute(
+        "UPDATE installed_skills SET directory_id = 'agents-0' WHERE directory_id = 'codex-1'",
+        [],
+    )?;
+    conn.execute("DELETE FROM ai_tool_directories WHERE id = 'codex-1'", [])?;
+
     Ok(())
 }
 

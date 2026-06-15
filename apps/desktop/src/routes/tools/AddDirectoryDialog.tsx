@@ -3,12 +3,17 @@ import { useState } from "react";
 import { X, ChevronDown } from "lucide-react";
 
 const TOOL_NAMES = [
+  "Agents",
   "Codex",
   "Claude",
   "Cursor",
   "OpenCode",
   "GitHub Copilot",
   "Antigravity",
+  "Antigravity CLI",
+  "Amp",
+  "Cline",
+  "Warp",
   "Gemini CLI",
   "Kimi Code CLI",
   "OpenClaw",

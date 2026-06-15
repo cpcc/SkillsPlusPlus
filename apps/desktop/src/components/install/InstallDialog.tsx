@@ -160,6 +160,11 @@ export function InstallDialog({
                           <>
                             <ToolIcon toolName={sel.toolName} size="sm" />
                             <span className="truncate">[{sel.toolName}] {sel.path}</span>
+                            {sel.toolName === "Agents" && (
+                              <span className="ml-1 shrink-0 rounded-full bg-[var(--color-accent-subtle)] px-1.5 py-[1px] text-[10px] text-[var(--color-accent-text)]">
+                                通用
+                              </span>
+                            )}
                           </>
                         ) : null;
                       })()}
@@ -180,6 +185,11 @@ export function InstallDialog({
                         >
                           <ToolIcon toolName={d.toolName} size="sm" />
                           <span className="truncate">[{d.toolName}] {d.path}{installedDirectoryIds.has(d.id) ? " — 已安装" : ""}</span>
+                          {d.toolName === "Agents" && (
+                            <span className="shrink-0 rounded-full bg-[var(--color-accent-subtle)] px-1.5 py-[1px] text-[10px] text-[var(--color-accent-text)]">
+                              通用
+                            </span>
+                          )}
                           {d.id === selectedDirId && (
                             <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
                           )}

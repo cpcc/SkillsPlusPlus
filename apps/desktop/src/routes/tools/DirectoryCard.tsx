@@ -63,6 +63,14 @@ export function DirectoryCard({
               <span className="text-[13px] font-medium text-[var(--color-text-primary)]">
                 {dir.toolName}
               </span>
+              {dir.toolName === "Agents" && (
+                <span
+                  className="rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent-text)]"
+                  title="Amp / Cline / Codex / Cursor / Deep Agents / Gemini CLI / GitHub Copilot / Kimi / OpenCode / Warp / Zed 等共享读取此目录"
+                >
+                  通用
+                </span>
+              )}
               {dir.isDefault && (
                 <span className="flex items-center gap-1 rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent)]">
                   <Star className="h-2.5 w-2.5" fill="currentColor" />
