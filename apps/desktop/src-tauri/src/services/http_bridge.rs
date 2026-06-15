@@ -99,6 +99,11 @@ struct SearchOnlineArgs {
     limit: Option<u32>,
 }
 
+#[derive(Deserialize)]
+struct OpenSkillDirArgs {
+    path: String,
+}
+
 /// Convert all top-level keys of a JSON object from camelCase to snake_case
 /// so the typed arg structs above deserialize cleanly from the JS body.
 fn camel_to_snake_keys(v: Value) -> Value {
@@ -322,6 +327,10 @@ async fn invoke_handler(
         "check_git_available" => Ok(json!(install_cmd::check_git_available_inner())),
         "read_lockfile" => install_cmd::read_lockfile().map(to_json),
         "list_canonical_skills" => install_cmd::list_canonical_skills().map(to_json),
+        "open_skill_dir" => match parse_args::<OpenSkillDirArgs>(&args) {
+            Ok(a) => install_cmd::open_skill_dir_inner(&a.path).map(|()| Value::Null),
+            Err(e) => Err(e),
+        },
 
         other => Err(format!("unknown command: {other}")),
     };

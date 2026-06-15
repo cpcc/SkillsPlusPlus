@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, PlusCircle, FolderTree } from "lucide-react";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type { AiToolDirectory } from "@skills-pp/shared";
+import { ipc } from "../../lib/ipc";
 import {
   useDirectories,
   useScanDirectories,
@@ -40,7 +40,7 @@ export default function ToolsPage() {
   }, []);
 
   function handleOpenFolder(path: string) {
-    openPath(path).catch(() => toast("无法打开目录", path, "error"));
+    ipc.openSkillDir(path).catch(() => toast("无法打开目录", path, "error"));
   }
 
   function handleAdd(toolName: string, path: string) {

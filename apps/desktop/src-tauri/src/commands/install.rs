@@ -383,6 +383,12 @@ pub fn import_existing_skills(db: State<DbState>) -> Result<usize, String> {
 /// arbitrary user home paths. Uses the platform-native helper binary.
 #[tauri::command]
 pub fn open_skill_dir(path: String) -> Result<(), String> {
+    open_skill_dir_inner(&path)
+}
+
+/// Backend-agnostic body so the HTTP bridge (non-Tauri dev browser) can
+/// reach the same logic without a `State<DbState>`/window context.
+pub fn open_skill_dir_inner(path: &str) -> Result<(), String> {
     let program = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(target_os = "windows") {
@@ -391,7 +397,7 @@ pub fn open_skill_dir(path: String) -> Result<(), String> {
         "xdg-open"
     };
     std::process::Command::new(program)
-        .arg(&path)
+        .arg(path)
         .spawn()
         .map_err(|e| format!("failed to open {path}: {e}"))?;
     Ok(())
