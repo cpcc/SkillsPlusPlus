@@ -66,7 +66,7 @@ export function DirectoryCard({
               {dir.toolName === "Agents" && (
                 <span
                   className="rounded-full bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] text-[var(--color-accent-text)]"
-                  title="Amp / Cline / Codex / Cursor / Deep Agents / Gemini CLI / GitHub Copilot / Kimi / OpenCode / Warp / Zed 等共享读取此目录"
+                  title="Amp / Antigravity / Cline / Codex / Cursor / Deep Agents / Dexto / Firebender / Gemini CLI / GitHub Copilot / Kimi / OpenCode / Warp / Zed 等共享读取此目录"
                 >
                   通用
                 </span>
