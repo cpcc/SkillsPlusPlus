@@ -57,7 +57,10 @@ export function FilterBar({
   const containerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const widthsRef = useRef<number[]>([]);
-  const [visibleCount, setVisibleCount] = useState<number>(CATEGORIES.length);
+  // 未展开时本应可见的 tab 数（与 expanded 解耦，决定是否需要「展开/收起」按钮）
+  const [collapsedVisibleCount, setCollapsedVisibleCount] = useState<number>(
+    CATEGORIES.length,
+  );
   const [expanded, setExpanded] = useState(false);
 
   useLayoutEffect(() => {
@@ -73,11 +76,8 @@ export function FilterBar({
       widthsRef.current = widths;
     }
 
+    // 计算「未展开」状态下能放下的 tab 数（与当前 expanded 无关）
     const compute = () => {
-      if (expanded) {
-        setVisibleCount(CATEGORIES.length);
-        return;
-      }
       const containerWidth = container.clientWidth;
       const limit = containerWidth - MORE_BTN_RESERVE;
       let acc = 0;
@@ -89,8 +89,7 @@ export function FilterBar({
         acc += w;
         count = i + 1;
       }
-      // 全部能放下时不需要展开按钮
-      setVisibleCount(count);
+      setCollapsedVisibleCount(count);
     };
 
     compute();
@@ -98,9 +97,11 @@ export function FilterBar({
     const ro = new ResizeObserver(() => compute());
     ro.observe(container);
     return () => ro.disconnect();
-  }, [expanded]);
+  }, []);
 
-  const hasOverflow = !expanded && visibleCount < CATEGORIES.length;
+  const hasOverflow = collapsedVisibleCount < CATEGORIES.length;
+  // 未展开时只显示前 collapsedVisibleCount 个；展开时全部可见（由 flex-wrap 自然换行）
+  const visibleCount = expanded ? CATEGORIES.length : collapsedVisibleCount;
 
   return (
     <nav className="border-b border-[var(--color-border-subtle)] pb-2">
