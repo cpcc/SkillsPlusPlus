@@ -12,6 +12,7 @@ import {
 } from "../../hooks/use-directories";
 import { DirectoryCard } from "./DirectoryCard";
 import { AddDirectoryDialog } from "./AddDirectoryDialog";
+import { DirectoryContentsDrawer } from "./DirectoryContentsDrawer";
 import { useToast } from "../../components/ui/toast";
 
 function groupByTool(dirs: AiToolDirectory[]): Map<string, AiToolDirectory[]> {
@@ -33,6 +34,7 @@ export default function ToolsPage() {
   const del = useDeleteDirectory();
   const toast = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [drawerDir, setDrawerDir] = useState<AiToolDirectory | null>(null);
 
   useEffect(() => {
     scan.mutate();
@@ -150,6 +152,7 @@ export default function ToolsPage() {
                     onSetDefault={handleSetDefault}
                     onDelete={handleDelete}
                     onOpenFolder={handleOpenFolder}
+                    onOpenContents={setDrawerDir}
                   />
                 ))}
               </div>
@@ -163,6 +166,11 @@ export default function ToolsPage() {
         onOpenChange={setDialogOpen}
         onAdd={handleAdd}
         isPending={add.isPending}
+      />
+
+      <DirectoryContentsDrawer
+        directory={drawerDir}
+        onClose={() => setDrawerDir(null)}
       />
     </div>
   );

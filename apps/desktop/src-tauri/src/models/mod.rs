@@ -155,3 +155,40 @@ pub struct InstalledSkillRow {
     pub author: Option<String>,
     pub description: Option<String>,
 }
+
+// ─── 目录文件树（抽屉） ───────────────────────────────────────────────────────
+
+/// 文件树节点类型。文件 → "file"，目录 → "dir"。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileNodeKind {
+    File,
+    Dir,
+}
+
+/// 抽屉中渲染的一棵目录树节点。
+///
+/// 设计要点：
+/// - `relative_path` 永远用 `/` 分隔，方便前端直接当 key 用。
+/// - `absolute_path` 直接给前端使用，不在前端拼路径。
+/// - `children` 在文件 / 触达深度或节点数上限时为 `None`。
+/// - `truncated=true` 表示当前层因 `max_depth` / `max_nodes` 被截断。
+/// - `error` 非空时表示 `read_dir` 失败，行内红色提示。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTreeNode {
+    pub name: String,
+    pub relative_path: String,
+    pub absolute_path: String,
+    pub kind: FileNodeKind,
+    pub size: u64,
+    /// dir 级：该目录是否含 SKILL.md（任意大小写）。
+    pub has_skill_md: bool,
+    /// dir 级：`has_skill_md` 或顶层含 `.md`/`.yaml`/`.yml` 文件。
+    pub is_skill: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub children: Option<Vec<FileTreeNode>>,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub error: Option<String>,
+}

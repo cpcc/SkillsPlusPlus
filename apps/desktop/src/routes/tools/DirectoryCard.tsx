@@ -15,6 +15,8 @@ interface Props {
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenFolder: (path: string) => void;
+  /** 点击卡片主体（非下拉菜单）时触发；用于打开目录内容抽屉。 */
+  onOpenContents: (dir: AiToolDirectory) => void;
 }
 
 function StatusBadge({ dir }: { dir: AiToolDirectory }) {
@@ -48,11 +50,32 @@ export function DirectoryCard({
   onSetDefault,
   onDelete,
   onOpenFolder,
+  onOpenContents,
 }: Props) {
+  const clickable = dir.enabled && dir.isDetected;
+  function handleActivate() {
+    if (!clickable) return;
+    onOpenContents(dir);
+  }
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!clickable) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onOpenContents(dir);
+    }
+  }
   return (
     <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={handleActivate}
+      onKeyDown={handleKeyDown}
       className={`rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-4 py-3 transition-all ${
-        !dir.enabled ? "opacity-40" : "hover:border-[var(--color-border-default)]"
+        !dir.enabled
+          ? "opacity-40"
+          : !dir.isDetected
+            ? "opacity-60"
+            : "cursor-pointer hover:border-[var(--color-border-default)] hover:bg-[var(--color-surface-hover)]"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -97,7 +120,10 @@ export function DirectoryCard({
 
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <button className="rounded-[var(--radius-sm)] p-1 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-secondary)]">
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="rounded-[var(--radius-sm)] p-1 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-secondary)]"
+            >
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </DropdownMenu.Trigger>

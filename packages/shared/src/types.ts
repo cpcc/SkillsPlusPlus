@@ -146,3 +146,25 @@ export type CanonicalSkill = {
   description?: string;
   hasSkillMd: boolean;
 };
+
+// ===== 目录文件树（抽屉） =====
+export type FileNodeKind = "file" | "dir";
+
+export type FileTreeNode = {
+  name: string;
+  /** 永远用 '/' 分隔，方便前端直接当 key 用。 */
+  relativePath: string;
+  /** 直接给前端用，不在前端拼路径。 */
+  absolutePath: string;
+  kind: FileNodeKind;
+  size: number;
+  /** dir 级：该目录是否含 SKILL.md（任意大小写）。 */
+  hasSkillMd: boolean;
+  /** dir 级：hasSkillMd 或顶层含 .md/.yaml/.yml 文件。 */
+  isSkill: boolean;
+  children?: FileTreeNode[] | null;
+  /** 因深度/计数限制被截断。 */
+  truncated: boolean;
+  /** read_dir 失败时填。 */
+  error?: string | null;
+};

@@ -60,6 +60,8 @@ pub fn run() {
             commands::directory::toggle_directory,
             commands::directory::set_default_directory,
             commands::directory::delete_directory,
+            commands::directory::list_directory_tree,
+            commands::directory::read_text_file,
             commands::source::list_sources,
             commands::source::toggle_source,
             commands::source::list_skills,

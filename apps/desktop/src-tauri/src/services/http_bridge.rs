@@ -104,6 +104,17 @@ struct OpenSkillDirArgs {
     path: String,
 }
 
+#[derive(Deserialize)]
+struct ListDirectoryTreeArgs {
+    path: String,
+    max_depth: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct ReadTextFileArgs {
+    path: String,
+}
+
 /// Convert all top-level keys of a JSON object from camelCase to snake_case
 /// so the typed arg structs above deserialize cleanly from the JS body.
 fn camel_to_snake_keys(v: Value) -> Value {
@@ -206,6 +217,14 @@ async fn invoke_handler(
         },
         "delete_directory" => match parse_args::<IdArgs>(&args) {
             Ok(a) => with_conn(&st, |c| dir_cmd::delete_directory_inner(c, a.id.clone())),
+            Err(e) => Err(e),
+        },
+        "list_directory_tree" => match parse_args::<ListDirectoryTreeArgs>(&args) {
+            Ok(a) => dir_cmd::list_directory_tree_inner(&a.path, a.max_depth).map(to_json),
+            Err(e) => Err(e),
+        },
+        "read_text_file" => match parse_args::<ReadTextFileArgs>(&args) {
+            Ok(a) => dir_cmd::read_text_file_inner(&a.path).map(to_json),
             Err(e) => Err(e),
         },
 

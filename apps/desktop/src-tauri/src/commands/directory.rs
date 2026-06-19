@@ -1,7 +1,8 @@
 use crate::commands::app::DbState;
-use crate::models::DirectoryRow;
+use crate::models::{DirectoryRow, FileTreeNode};
 use crate::services::directory as dir_svc;
 use rusqlite::{params, Connection};
+use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
 
@@ -136,4 +137,37 @@ pub fn delete_directory_inner(conn: &Connection, id: String) -> Result<(), Strin
 pub fn delete_directory(db: State<DbState>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     delete_directory_inner(&conn, id)
+}
+
+// ─── Directory tree (drawer) ─────────────────────────────────────────────────
+
+const DEFAULT_TREE_DEPTH: u32 = 4;
+const DEFAULT_TREE_MAX_NODES: usize = 5000;
+
+/// Inner logic for `list_directory_tree`. Public + DB-free so the HTTP bridge
+/// and unit tests can call it directly.
+pub fn list_directory_tree_inner(
+    path: &str,
+    max_depth: Option<u32>,
+) -> Result<FileTreeNode, String> {
+    let depth = max_depth.unwrap_or(DEFAULT_TREE_DEPTH);
+    dir_svc::walk_directory_tree(Path::new(path), depth, DEFAULT_TREE_MAX_NODES)
+}
+
+#[tauri::command]
+pub fn list_directory_tree(
+    path: String,
+    max_depth: Option<u32>,
+) -> Result<FileTreeNode, String> {
+    list_directory_tree_inner(&path, max_depth)
+}
+
+/// Inner logic for `read_text_file`. Default 256 KB cap.
+pub fn read_text_file_inner(path: &str) -> Result<Option<String>, String> {
+    dir_svc::read_text_file(Path::new(path), 256 * 1024)
+}
+
+#[tauri::command]
+pub fn read_text_file(path: String) -> Result<Option<String>, String> {
+    read_text_file_inner(&path)
 }

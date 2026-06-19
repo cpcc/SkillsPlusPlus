@@ -3,6 +3,7 @@ import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
   InstallPreview, InstalledSkill,
   InstallStrategy, LockEntry, CanonicalSkill, UpdateInfo,
+  FileTreeNode,
 } from "@skills-pp/shared";
 
 /**
@@ -66,6 +67,10 @@ export const ipc = {
     call("set_default_directory", { id }),
   deleteDirectory: (id: string): Promise<void> =>
     call("delete_directory", { id }),
+  listDirectoryTree: (path: string, maxDepth?: number): Promise<FileTreeNode> =>
+    call("list_directory_tree", { path, maxDepth }),
+  readTextFile: (path: string): Promise<string | null> =>
+    call("read_text_file", { path }),
 
   // Sources
   listSources: (): Promise<SkillSource[]> => call("list_sources"),
