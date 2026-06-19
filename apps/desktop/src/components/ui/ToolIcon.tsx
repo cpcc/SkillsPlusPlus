@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import {
   Claude,
   Cursor,
-  OpenAI,
+  Codex,
   Gemini,
   Kimi,
   OpenCode,
@@ -52,7 +52,7 @@ const TOOL_ICON_MAP: Record<
 > = {
   claude: { Icon: Claude, hasColor: true },
   cursor: { Icon: Cursor, hasColor: false },
-  codex: { Icon: OpenAI, hasColor: false },
+  codex: { Icon: Codex, hasColor: false },
   "github copilot": { Icon: GithubCopilot, hasColor: false },
   opencode: { Icon: OpenCode, hasColor: false },
   antigravity: { Icon: Antigravity, hasColor: true },
