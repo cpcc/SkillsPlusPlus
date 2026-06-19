@@ -62,6 +62,7 @@ export default function DiscoverPage() {
   const setQuery = (q: string) =>
     setSearchParams(q ? { q } : {}, { replace: true });
   const [selectedSource, setSelectedSource] = useState("skills_sh");
+  const [selectedCategory, setSelectedCategory] = useState("全部");
   const debouncedQuery = useDebounced(query, 300);
 
   // Auto-refresh on first mount if cache is empty
@@ -162,6 +163,8 @@ export default function DiscoverPage() {
           sources={sources}
           selectedSource={selectedSource}
           onSourceChange={setSelectedSource}
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
         />
       </div>
 
