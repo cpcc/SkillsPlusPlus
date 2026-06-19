@@ -5,8 +5,11 @@ import {
   AlertCircle,
   Star,
   MoreHorizontal,
+  Power,
+  Trash2,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ToolIcon } from "../../components/ui/ToolIcon";
 
 interface Props {
@@ -65,19 +68,21 @@ export function DirectoryCard({
     }
   }
   return (
-    <div
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onClick={handleActivate}
-      onKeyDown={handleKeyDown}
-      className={`rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-4 py-3 transition-all ${
-        !dir.enabled
-          ? "opacity-40"
-          : !dir.isDetected
-            ? "opacity-60"
-            : "cursor-pointer hover:border-[var(--color-border-default)] hover:bg-[var(--color-surface-hover)]"
-      }`}
-    >
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div
+          role={clickable ? "button" : undefined}
+          tabIndex={clickable ? 0 : undefined}
+          onClick={handleActivate}
+          onKeyDown={handleKeyDown}
+          className={`rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-4 py-3 transition-all ${
+            !dir.enabled
+              ? "opacity-40"
+              : !dir.isDetected
+                ? "opacity-60"
+                : "cursor-pointer hover:border-[var(--color-border-default)] hover:bg-[var(--color-surface-hover)]"
+          }`}
+        >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <ToolIcon toolName={dir.toolName} size="sm" className="mt-0.5" />
@@ -163,6 +168,29 @@ export function DirectoryCard({
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-    </div>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          className="z-50 min-w-[160px] rounded-[var(--radius-lg)] border border-[var(--color-border-default)] bg-[var(--color-surface-overlay)] py-1 shadow-xl shadow-black/30"
+        >
+          <ContextMenu.Item
+            className="flex cursor-pointer items-center gap-2 px-3 py-[6px] text-[13px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+            onSelect={() => onToggle(dir.id, !dir.enabled)}
+          >
+            <Power className="h-3.5 w-3.5" />
+            {dir.enabled ? "禁用" : "启用"}
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="my-1 h-px bg-[var(--color-border-subtle)]" />
+          <ContextMenu.Item
+            className="flex cursor-pointer items-center gap-2 px-3 py-[6px] text-[13px] text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-subtle)]"
+            onSelect={() => onDelete(dir.id)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            删除
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
