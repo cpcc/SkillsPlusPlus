@@ -33,6 +33,7 @@ pub fn migrate(conn: &Connection) -> SqliteResult<()> {
     // add_column_if_missing 对已存在的列是 no-op。
     ensure_v2_columns(conn)?;
     ensure_v4_columns(conn)?;
+    ensure_registry_source_url(conn)?;
 
     if current < 3 {
         migrate_v3_fix_copilot_path(conn)?;
@@ -94,6 +95,20 @@ fn add_column_if_missing(
 /// 幂等：列已存在时跳过。
 fn ensure_v4_columns(conn: &Connection) -> SqliteResult<()> {
     add_column_if_missing(conn, "skill_cache", "category", "TEXT")?;
+    Ok(())
+}
+
+/// 幂等地修复 registry 源的 base_url。
+///
+/// 历史版本曾把 `<hf_user>` 占位符直接 seed 到用户数据库里，导致 Discover 默认选中
+/// 官方聚合时永远没有远端可拉。这里统一把旧占位符和过期值自愈到当前编译期 HF_USER。
+fn ensure_registry_source_url(conn: &Connection) -> SqliteResult<()> {
+    let hf_user = crate::services::adapters::registry::HF_USER;
+    let expected = format!("https://huggingface.co/datasets/{hf_user}/aiskills-registry");
+    conn.execute(
+        "UPDATE skill_sources SET base_url = ?1 WHERE id = 'registry' AND base_url <> ?1",
+        rusqlite::params![expected],
+    )?;
     Ok(())
 }
 
@@ -332,5 +347,38 @@ mod tests {
             )
             .unwrap();
         assert_eq!(path2, "/home/user/.copilot/skills");
+    }
+
+    #[test]
+    fn migrate_heals_registry_source_placeholder_url() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE skill_sources (id TEXT PRIMARY KEY, name TEXT, base_url TEXT, enabled INTEGER, created_at TEXT);
+             CREATE TABLE skill_cache (id TEXT PRIMARY KEY, source_id TEXT, name TEXT, author TEXT, description TEXT, tags TEXT, repo_url TEXT, detail_url TEXT, updated_at TEXT, compatible_tools TEXT, cached_at TEXT);
+             CREATE TABLE ai_tool_directories (id TEXT PRIMARY KEY, tool_name TEXT, path TEXT, is_default INTEGER, is_detected INTEGER, writable INTEGER, enabled INTEGER, skill_count INTEGER, created_at TEXT);
+             CREATE TABLE installed_skills (id TEXT PRIMARY KEY, skill_id TEXT, name TEXT, tool_name TEXT, directory_id TEXT, source_id TEXT, repo_url TEXT, installed_at TEXT, status TEXT);
+             CREATE TABLE install_tasks (id TEXT PRIMARY KEY, skill_id TEXT, skill_name TEXT, tool_name TEXT, directory_id TEXT, action TEXT, status TEXT, started_at TEXT, finished_at TEXT, error_message TEXT, created_at TEXT);
+             CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+             INSERT INTO skill_sources VALUES ('registry', '官方聚合', 'https://huggingface.co/datasets/<hf_user>/aiskills-registry', 1, datetime('now'));
+             PRAGMA user_version = 4;",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let url: String = conn
+            .query_row(
+                "SELECT base_url FROM skill_sources WHERE id = 'registry'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            url,
+            format!(
+                "https://huggingface.co/datasets/{}/aiskills-registry",
+                crate::services::adapters::registry::HF_USER
+            )
+        );
     }
 }

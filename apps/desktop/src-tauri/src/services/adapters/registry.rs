@@ -1,6 +1,6 @@
 //! 官方聚合 adapter：从 HuggingFace Dataset 拉 CI 抓取的聚合 JSON。
 //!
-//! 流程：HF 主站 → hf-mirror（国内 CDN 反代）→ 本地磁盘缓存。
+//! 流程：hf-mirror（国内 CDN 反代）→ HF 主站 → 本地磁盘缓存。
 //! 任意一个成功就返回。失败时降级到本地缓存 + `log::warn!`（上层 UI 可加 Toast）。
 
 use crate::models::{InstallStrategy, SkillItem};
@@ -8,6 +8,7 @@ use crate::services::source::SourceAdapter;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 /// HuggingFace 用户名 / 组织名。
@@ -25,18 +26,104 @@ const SKILLS_JSON: &str = "skills.json";
 /// 本地缓存有效期：超过这个时间会重新走网络。
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// 单 URL 超时。
-const FETCH_TIMEOUT: Duration = Duration::from_secs(8);
+/// 单 URL 连接超时。主站在国内环境经常卡在建连阶段，这里单独收紧。
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// 单 URL 读取超时。hf-mirror 可达但下载慢，因此读超时放宽。
+const READ_TIMEOUT: Duration = Duration::from_secs(45);
+/// curl 兜底总超时。实测国内网络下 hf-mirror 完整下载约 8s，给更宽裕预算。
+const CURL_MAX_TIME: Duration = Duration::from_secs(90);
+/// hf-mirror 在国内网络通常可达但偶发慢/抖动，允许轻量重试。
+const MIRROR_RETRIES: usize = 2;
+const PRIMARY_RETRIES: usize = 1;
 
 const ETAG_FILE: &str = "registry.etag";
 
 fn build_urls() -> [String; 2] {
     let path = format!("/datasets/{HF_USER}/{HF_DATASET_REPO}/resolve/main/{SKILLS_JSON}");
     [
-        format!("https://huggingface.co{path}"),
         // 国内 CDN 反代
         format!("https://hf-mirror.com{path}"),
+        format!("https://huggingface.co{path}"),
     ]
+}
+
+fn max_attempts_for_url(url: &str) -> usize {
+    if url.contains("hf-mirror.com") {
+        MIRROR_RETRIES
+    } else {
+        PRIMARY_RETRIES
+    }
+}
+
+fn write_local_cache(bytes: &[u8]) {
+    let Some(p) = cache_path() else { return };
+    if let Some(parent) = p.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&p, bytes) {
+        log::warn!("registry: failed to write cache {:?}: {e}", p);
+    }
+}
+
+fn parse_payload(bytes: &[u8], url: &str) -> Option<RegistryPayload> {
+    match serde_json::from_slice(bytes) {
+        Ok(payload) => Some(payload),
+        Err(e) => {
+            log::warn!("registry: {url} parse failed: {e}");
+            None
+        }
+    }
+}
+
+fn build_curl_args(url: &str, etag: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "-L".to_string(),
+        "--fail".to_string(),
+        "--silent".to_string(),
+        "--show-error".to_string(),
+        "--connect-timeout".to_string(),
+        CONNECT_TIMEOUT.as_secs().to_string(),
+        "--max-time".to_string(),
+        CURL_MAX_TIME.as_secs().to_string(),
+        "--user-agent".to_string(),
+        "skills-plus-plus/0.1".to_string(),
+    ];
+
+    if let Some(etag) = etag.filter(|v| !v.is_empty()) {
+        args.push("-H".to_string());
+        args.push(format!("If-None-Match: {etag}"));
+    }
+
+    args.push(url.to_string());
+    args
+}
+
+fn fetch_registry_via_curl(url: &str, etag: Option<&str>) -> Result<Option<Vec<SkillItem>>, String> {
+    let mut cmd = Command::new("curl");
+    cmd.args(build_curl_args(url, etag));
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("registry: failed to run curl for {url}: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(format!(
+            "registry: curl failed for {url}: {}",
+            if detail.is_empty() { "unknown curl error" } else { detail }
+        ));
+    }
+
+    if output.stdout.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(payload) = parse_payload(&output.stdout, url) else {
+        return Ok(None);
+    };
+    write_local_cache(&output.stdout);
+    Ok(Some(payload.skills))
 }
 
 /// 本地缓存路径：`<cache_dir>/skillspp/registry.json`。
@@ -107,63 +194,97 @@ async fn fetch_registry_with_warnings() -> Result<(Vec<SkillItem>, Vec<String>),
 
     let client = reqwest::Client::builder()
         .user_agent("skills-plus-plus/0.1")
-        .timeout(FETCH_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?;
 
     let etag = read_etag();
 
-    // 1) 依次尝试 HF 主站 → hf-mirror
+    // 1) 依次尝试 hf-mirror → HF 主站
     for url in build_urls() {
-        let mut req = client.get(&url);
-        if let Some(etag) = etag.as_deref() {
-            req = req.header(reqwest::header::IF_NONE_MATCH, etag);
+        for attempt in 1..=max_attempts_for_url(&url) {
+            let mut req = client.get(&url);
+            if let Some(etag) = etag.as_deref() {
+                req = req.header(reqwest::header::IF_NONE_MATCH, etag);
+            }
+            match req.send().await {
+                Ok(r) if r.status() == reqwest::StatusCode::NOT_MODIFIED => {
+                    if let Some(skills) = load_local_cache() {
+                        return Ok((skills, warnings));
+                    }
+                    log::warn!("registry: {url} returned 304 but local cache missing");
+                    break;
+                }
+                Ok(r) if r.status().is_success() => {
+                    let response_etag = r
+                        .headers()
+                        .get(reqwest::header::ETAG)
+                        .and_then(|v| v.to_str().ok())
+                        .map(str::to_string);
+                    let body = match r.bytes().await {
+                        Ok(b) => b,
+                        Err(e) => {
+                            log::warn!("registry: {url} body read failed on attempt {attempt}: {e}");
+                            if attempt < max_attempts_for_url(&url) {
+                                continue;
+                            }
+                            break;
+                        }
+                    };
+                    let parsed: RegistryPayload = match serde_json::from_slice(&body) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("registry: {url} parse failed on attempt {attempt}: {e}");
+                            if attempt < max_attempts_for_url(&url) {
+                                continue;
+                            }
+                            break;
+                        }
+                    };
+                    if let Some(p) = cache_path() {
+                        if let Some(parent) = p.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if let Err(e) = std::fs::write(&p, &body) {
+                            log::warn!("registry: failed to write cache {:?}: {e}", p);
+                        }
+                    }
+                    if let Some(etag) = response_etag.as_deref() {
+                        write_etag(etag);
+                    }
+                    return Ok((parsed.skills, warnings));
+                }
+                Ok(r) => {
+                    log::warn!("registry: {url} returned status {} on attempt {attempt}", r.status());
+                    if attempt < max_attempts_for_url(&url) {
+                        continue;
+                    }
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("registry: {url} fetch failed on attempt {attempt}: {e}");
+                    if attempt < max_attempts_for_url(&url) {
+                        continue;
+                    }
+                }
+            }
         }
-        match req.send().await {
-            Ok(r) if r.status() == reqwest::StatusCode::NOT_MODIFIED => {
-                if let Some(skills) = load_local_cache() {
-                    return Ok((skills, warnings));
-                }
-                log::warn!("registry: {url} returned 304 but local cache missing");
+    }
+
+    // 2) 当前中国网络下可能出现 reqwest 全失败但系统 curl 能通过 hf-mirror 成功的情况。
+    //    这里做最后兜底：仍按 mirror → primary 顺序尝试，用 curl 拉完整文件并写本地缓存。
+    for url in build_urls() {
+        match fetch_registry_via_curl(&url, etag.as_deref()) {
+            Ok(Some(skills)) => {
+                warnings.push("官方聚合已通过系统网络兜底恢复。".to_string());
+                return Ok((skills, warnings));
             }
-            Ok(r) if r.status().is_success() => {
-                let response_etag = r
-                    .headers()
-                    .get(reqwest::header::ETAG)
-                    .and_then(|v| v.to_str().ok())
-                    .map(str::to_string);
-                let body = match r.bytes().await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        log::warn!("registry: {url} body read failed: {e}");
-                        continue;
-                    }
-                };
-                let parsed: RegistryPayload = match serde_json::from_slice(&body) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        log::warn!("registry: {url} parse failed: {e}");
-                        continue;
-                    }
-                };
-                if let Some(p) = cache_path() {
-                    if let Some(parent) = p.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if let Err(e) = std::fs::write(&p, &body) {
-                        log::warn!("registry: failed to write cache {:?}: {e}", p);
-                    }
-                }
-                if let Some(etag) = response_etag.as_deref() {
-                    write_etag(etag);
-                }
-                return Ok((parsed.skills, warnings));
-            }
-            Ok(r) => {
-                log::warn!("registry: {url} returned status {}", r.status());
+            Ok(None) => {
+                log::warn!("registry: curl returned empty body for {url}");
             }
             Err(e) => {
-                log::warn!("registry: {url} fetch failed: {e}");
+                log::warn!("{e}");
             }
         }
     }
@@ -258,9 +379,48 @@ mod tests {
     #[test]
     fn build_urls_uses_hf_user_and_mirror() {
         let urls = build_urls();
-        assert!(urls[0].starts_with("https://huggingface.co/datasets/"));
+        assert!(urls[0].starts_with("https://hf-mirror.com/datasets/"));
         assert!(urls[0].ends_with("/resolve/main/skills.json"));
-        assert!(urls[1].starts_with("https://hf-mirror.com/datasets/"));
+        assert!(urls[1].starts_with("https://huggingface.co/datasets/"));
+    }
+
+    #[test]
+    fn mirror_has_more_retries_than_primary() {
+        let urls = build_urls();
+        assert_eq!(max_attempts_for_url(&urls[0]), MIRROR_RETRIES);
+        assert_eq!(max_attempts_for_url(&urls[1]), PRIMARY_RETRIES);
+    }
+
+    #[test]
+    fn curl_timeout_is_not_shorter_than_read_timeout() {
+        assert!(CURL_MAX_TIME >= READ_TIMEOUT);
+    }
+
+    #[test]
+    fn build_curl_args_prefers_resilient_download_flags() {
+        let url = "https://hf-mirror.com/datasets/futuregateway/aiskills-registry/resolve/main/skills.json";
+        let args = build_curl_args(url, Some("etag-value"));
+
+        assert_eq!(args[0], "-L");
+        assert!(args.contains(&"--fail".to_string()));
+        assert!(args.contains(&"--silent".to_string()));
+        assert!(args.contains(&"--show-error".to_string()));
+        assert!(args.contains(&"--connect-timeout".to_string()));
+        assert!(args.contains(&CONNECT_TIMEOUT.as_secs().to_string()));
+        assert!(args.contains(&"--max-time".to_string()));
+        assert!(args.contains(&CURL_MAX_TIME.as_secs().to_string()));
+        assert!(args.contains(&"-H".to_string()));
+        assert!(args.contains(&"If-None-Match: etag-value".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some(url));
+    }
+
+    #[test]
+    fn build_curl_args_omits_etag_header_when_missing() {
+        let url = "https://hf-mirror.com/datasets/futuregateway/aiskills-registry/resolve/main/skills.json";
+        let args = build_curl_args(url, None);
+
+        assert!(!args.iter().any(|arg| arg == "-H"));
+        assert_eq!(args.last().map(String::as_str), Some(url));
     }
 
     #[test]
