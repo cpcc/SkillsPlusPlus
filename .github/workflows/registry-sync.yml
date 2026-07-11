@@ -1,0 +1,70 @@
+name: registry-sync
+
+# 每日 UTC 04:17 自动跑（错峰，避开整点拥堵）；也支持手动 dispatch。
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      skip_llm:
+        description: '跳过 LLM 分类兜底（强制走规则）'
+        required: false
+        type: boolean
+        default: false
+
+# 同一时间只允许一个 registry-sync 在跑；新触发的排队等上一个跑完。
+concurrency:
+  group: registry-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # HuggingFace Dataset 目标仓库（用户名/组织）。可在 repo Secrets 里覆盖。
+      HF_USER: ${{ secrets.HF_USER }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      # GitHub repo API（带更高 rate limit）
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 可选：LLM 分类兜底（Anthropic）。缺省时 classify.py 自动跳过 LLM。
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL || 'claude-haiku-4-5-20251001' }}
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/scripts/registry/requirements.txt
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r .github/scripts/registry/requirements.txt
+
+      - name: Optional skip LLM
+        if: ${{ github.event.inputs.skip_llm == 'true' }}
+        run: |
+          echo "LLM_API_KEY=" >> $GITHUB_ENV
+          echo "[main] LLM disabled via dispatch input"
+
+      - name: Run aggregator (fetch_all → enrich → classify → merge → push)
+        run: |
+          python -m registry
+
+      - name: Upload skills.json as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-skills-${{ github.run_id }}
+          path: |
+            tmp/skills.json
+            tmp/skills.jsonl
+          if-no-files-found: error
+          retention-days: 14

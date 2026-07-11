@@ -115,6 +115,7 @@ impl SourceAdapter for GithubAdapter {
                         stars: Some(repo.stargazers_count),
                         install_strategy: Some(InstallStrategy::Git),
                         archive_url: Some(archive_url),
+                        category: None,
                     });
                 }
 

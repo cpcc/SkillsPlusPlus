@@ -3,7 +3,7 @@ import type {
   AppInfo, AiToolDirectory, SkillItem, SkillSource,
   InstallPreview, InstalledSkill,
   InstallStrategy, LockEntry, CanonicalSkill, UpdateInfo,
-  FileTreeNode,
+  FileTreeNode, RefreshSourcesResult,
 } from "@skills-pp/shared";
 
 /**
@@ -79,9 +79,9 @@ export const ipc = {
 
   // Skills (discovery)
   listSkills: (): Promise<SkillItem[]> => call("list_skills"),
-  refreshSource: (sourceId: string): Promise<SkillItem[]> =>
+  refreshSource: (sourceId: string): Promise<RefreshSourcesResult> =>
     call("refresh_source", { sourceId }),
-  refreshAllSources: (): Promise<SkillItem[]> => call("refresh_all_sources"),
+  refreshAllSources: (): Promise<RefreshSourcesResult> => call("refresh_all_sources"),
   getSkill: (id: string): Promise<SkillItem | null> => call("get_skill", { id }),
   fetchSkillMd: (id: string): Promise<string | null> => call("fetch_skill_md", { id }),
 

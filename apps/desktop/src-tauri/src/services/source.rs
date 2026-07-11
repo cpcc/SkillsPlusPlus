@@ -11,4 +11,11 @@ pub trait SourceAdapter: Send + Sync {
         InstallStrategy::Git
     }
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<Vec<SkillItem>, String>> + Send>>;
+
+    fn fetch_with_warnings(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(Vec<SkillItem>, Vec<String>), String>> + Send>> {
+        let fut = self.fetch();
+        Box::pin(async move { fut.await.map(|items| (items, vec![])) })
+    }
 }

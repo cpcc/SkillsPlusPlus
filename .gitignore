@@ -2,6 +2,9 @@ node_modules/
 dist/
 .turbo/
 target/
+__pycache__/
+*.pyc
+tmp/
 *.local
 .env
 apps/desktop/src-tauri/target/

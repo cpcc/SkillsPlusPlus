@@ -69,6 +69,7 @@ impl SourceAdapter for LobehubAdapter {
                     stars: None,
                     install_strategy: Some(InstallStrategy::Archive),
                     archive_url: None,
+                    category: None,
                 }
             }).collect();
 

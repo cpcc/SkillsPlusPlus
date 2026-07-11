@@ -108,6 +108,7 @@ export function FilterBar({
       <div className="flex items-center gap-3">
         <SelectWrapper>
           <select
+            key={`${selectedSource}:${sources.filter((s) => s.enabled).map((s) => s.id).join("|")}`}
             className={selectCls}
             value={selectedSource}
             onChange={(e) => onSourceChange(e.target.value)}

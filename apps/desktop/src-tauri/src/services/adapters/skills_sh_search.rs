@@ -87,6 +87,7 @@ fn hit_to_skill_item(hit: SearchHit) -> SkillItem {
         stars: Some(hit.installs),
         install_strategy: Some(InstallStrategy::Git),
         archive_url,
+        category: None,
     }
 }
 

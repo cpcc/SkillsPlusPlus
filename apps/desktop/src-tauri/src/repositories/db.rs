@@ -1,8 +1,8 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
 
-/// 当前 schema 版本号。新建库直接写 V2 全表；旧库按 user_version 升级。
-const CURRENT_USER_VERSION: i64 = 3;
+/// 当前 schema 版本号。新建库直接写 V4 全表；旧库按 user_version 升级。
+const CURRENT_USER_VERSION: i64 = 4;
 
 pub fn open(db_path: &PathBuf) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -32,6 +32,7 @@ pub fn migrate(conn: &Connection) -> SqliteResult<()> {
     // （包括历史 bug 导致 user_version 已被写成 2 但列缺失的库）都能自愈。
     // add_column_if_missing 对已存在的列是 no-op。
     ensure_v2_columns(conn)?;
+    ensure_v4_columns(conn)?;
 
     if current < 3 {
         migrate_v3_fix_copilot_path(conn)?;
@@ -89,8 +90,21 @@ fn add_column_if_missing(
     Ok(())
 }
 
+/// V3→V4: 给 skill_cache 加 `category` 列（CI 聚合阶段生成的 17 类分类）。
+/// 幂等：列已存在时跳过。
+fn ensure_v4_columns(conn: &Connection) -> SqliteResult<()> {
+    add_column_if_missing(conn, "skill_cache", "category", "TEXT")?;
+    Ok(())
+}
+
 pub fn seed_sources(conn: &Connection) -> SqliteResult<()> {
+    // registry 作为聚合主源，排在 seed 列表首位。
+    // base_url 里的 <hf_user> 占位由 source_registry.rs 里的常量 + 后期 migration UPDATE 替换。
+    let hf_user = crate::services::adapters::registry::HF_USER;
+    let registry_base_url =
+        format!("https://huggingface.co/datasets/{hf_user}/aiskills-registry");
     let sources = &[
+        ("registry",   "官方聚合",     registry_base_url.as_str()),
         ("skills_sh",  "skills.sh",    "https://skills.sh"),
         ("lobehub",    "LobeHub",      "https://lobehub.com/skills"),
         ("skillhub",   "SkillHub.cn",  "https://skillhub.cn"),
@@ -130,7 +144,8 @@ CREATE TABLE IF NOT EXISTS skill_cache (
     install_strategy TEXT,
     archive_url     TEXT,
     stars           INTEGER,
-    skill_md        TEXT
+    skill_md        TEXT,
+    category        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ai_tool_directories (

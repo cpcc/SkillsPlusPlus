@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { RefreshCw, Search, Sparkles } from "lucide-react";
-import type { SkillItem } from "@skills-pp/shared";
+import type { RefreshWarning, SkillItem } from "@skills-pp/shared";
 import {
   useSkills,
   useRefreshAllSources,
@@ -51,6 +51,13 @@ function useInfiniteScroll<T>(items: T[], resetKey: string) {
   };
 }
 
+function warningTitle(warning: RefreshWarning) {
+  if (warning.sourceId === "registry") {
+    return "官方聚合已回退到本地缓存";
+  }
+  return `${warning.sourceId} 刷新时有降级提示`;
+}
+
 export default function DiscoverPage() {
   const { data: skills = [], isLoading } = useSkills();
   const { data: sources = [] } = useSources();
@@ -61,14 +68,30 @@ export default function DiscoverPage() {
   const query = searchParams.get("q") ?? "";
   const setQuery = (q: string) =>
     setSearchParams(q ? { q } : {}, { replace: true });
-  const [selectedSource, setSelectedSource] = useState("skills_sh");
+  // sources 异步加载后优先切到 registry；浏览器环境下直接以 "registry" 初始化，
+  // 在 options 尚未挂载时有概率留下空值，因此改成在 sources 就绪后再显式选中。
+  const [selectedSource, setSelectedSource] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("全部");
   const debouncedQuery = useDebounced(query, 300);
+
+  useEffect(() => {
+    const enabledIds = sources.filter((s) => s.enabled).map((s) => s.id);
+    if (enabledIds.length === 0) return;
+    setSelectedSource((current) => {
+      if (current && enabledIds.includes(current)) return current;
+      return enabledIds.includes("registry") ? "registry" : enabledIds[0];
+    });
+  }, [sources]);
 
   // Auto-refresh on first mount if cache is empty
   useEffect(() => {
     if (!isLoading && skills.length === 0) {
       refresh.mutate(undefined, {
+        onSuccess: (result) => {
+          result.warnings.forEach((warning) => {
+            toast(warningTitle(warning), warning.message);
+          });
+        },
         onError: (e) => toast("刷新失败", String(e), "error"),
       });
     }
@@ -79,6 +102,10 @@ export default function DiscoverPage() {
     const q = debouncedQuery.toLowerCase();
     return skills.filter((s) => {
       if (selectedSource && s.sourceId !== selectedSource) return false;
+      // 分类 Tab：非「全部」时严格按 category 过滤；未分类的 skill 在选具体类时会被隐藏。
+      if (selectedCategory && selectedCategory !== "全部") {
+        if (!s.category || s.category !== selectedCategory) return false;
+      }
       if (q) {
         return (
           s.name.toLowerCase().includes(q) ||
@@ -89,7 +116,7 @@ export default function DiscoverPage() {
       }
       return true;
     });
-  }, [skills, debouncedQuery, selectedSource]);
+  }, [skills, debouncedQuery, selectedSource, selectedCategory]);
 
   // 在线搜索：查询长度 >= 2 时始终与本地并行搜索
   const enableOnline = debouncedQuery.trim().length >= 2;
@@ -132,6 +159,11 @@ export default function DiscoverPage() {
         <button
           onClick={() =>
             refresh.mutate(undefined, {
+              onSuccess: (result) => {
+                result.warnings.forEach((warning) => {
+                  toast(warningTitle(warning), warning.message);
+                });
+              },
               onError: (e) => toast("刷新失败", String(e), "error"),
             })
           }

@@ -1,5 +1,5 @@
 use crate::models::InstallStrategy;
-use crate::services::adapters::{GithubAdapter, LobehubAdapter, StubAdapter};
+use crate::services::adapters::{GithubAdapter, LobehubAdapter, RegistryAdapter, StubAdapter};
 use crate::services::source::SourceAdapter;
 
 pub struct SourceRegistry {
@@ -10,6 +10,8 @@ impl SourceRegistry {
     pub fn new() -> Self {
         SourceRegistry {
             adapters: vec![
+                // CI 聚合主源：发现页默认显示这个。
+                Box::new(RegistryAdapter),
                 Box::new(GithubAdapter),
                 Box::new(LobehubAdapter),
                 // 直接拷贝流派：skillhub/openclaw

@@ -1,0 +1,8 @@
+httpx>=0.27
+selectolax>=0.3
+huggingface_hub>=0.24
+pydantic>=2
+tenacity>=8
+PyYAML>=6
+# 可选 LLM 兜底：仅在 LLM_API_KEY 环境变量配置时启用。
+anthropic>=0.40

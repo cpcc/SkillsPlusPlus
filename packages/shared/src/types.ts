@@ -9,6 +9,16 @@ export type SkillSource = {
   enabled: boolean;
 };
 
+export type RefreshWarning = {
+  sourceId: string;
+  message: string;
+};
+
+export type RefreshSourcesResult = {
+  skills: SkillItem[];
+  warnings: RefreshWarning[];
+};
+
 // ===== Skill 条目（来源聚合后标准化） =====
 export type SkillItem = {
   id: string;
@@ -26,6 +36,8 @@ export type SkillItem = {
   installStrategy?: InstallStrategy;
   /** 用户切换到 copy/archive/skills_cli 时使用的归档下载地址 */
   archiveUrl?: string;
+  /** CI 聚合阶段生成的分类（对齐 FilterBar 17 类），registry 源必有；其它源可能为空 */
+  category?: string;
 };
 
 // ===== AI 工具目录 =====

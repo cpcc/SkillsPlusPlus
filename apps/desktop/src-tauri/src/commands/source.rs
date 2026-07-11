@@ -1,5 +1,5 @@
 use crate::commands::app::DbState;
-use crate::models::{SkillItem, SourceRow};
+use crate::models::{RefreshSourcesResult, RefreshWarning, SkillItem, SourceRow};
 use crate::services::skill_md::{parse_frontmatter_and_strip, FrontmatterMeta};
 use crate::services::source_registry::SourceRegistry;
 use rusqlite::{params, Connection};
@@ -59,12 +59,12 @@ pub fn store_skills(conn: &Connection, source_id: &str, items: &[SkillItem]) -> 
         let strategy = item.install_strategy.map(|s| s.as_str().to_string());
         conn.execute(
             "INSERT OR REPLACE INTO skill_cache \
-             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars, category) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 item.id, source_id, item.name, item.author, item.description,
                 tags, item.repo_url, item.detail_url, item.updated_at, tools,
-                strategy, item.archive_url, item.stars,
+                strategy, item.archive_url, item.stars, item.category,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -78,9 +78,9 @@ pub fn load_skills(conn: &Connection, source_ids: &[String]) -> Result<Vec<Skill
     }
     let ph: String = (1..=source_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
     let sql = format!(
-        "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars \
+        "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars, category \
          FROM skill_cache WHERE source_id IN ({ph}) \
-         ORDER BY CASE source_id WHEN 'skills_sh' THEN 0 ELSE 1 END, \
+         ORDER BY CASE source_id WHEN 'registry' THEN 0 WHEN 'skills_sh' THEN 1 ELSE 2 END, \
                   stars DESC NULLS LAST, \
                   name COLLATE NOCASE"
     );
@@ -120,6 +120,7 @@ pub fn map_skill_cache_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillIte
         stars: row.get(12)?,
         install_strategy,
         archive_url: row.get(11)?,
+        category: row.get(13)?,
     })
 }
 
@@ -164,40 +165,50 @@ pub fn list_skills(db: State<DbState>) -> Result<Vec<SkillItem>, String> {
 pub async fn refresh_source_inner(
     db: Arc<Mutex<Connection>>,
     source_id: String,
-) -> Result<Vec<SkillItem>, String> {
+) -> Result<RefreshSourcesResult, String> {
     let registry = SourceRegistry::new();
     let adapter = registry
         .get_adapter(&source_id)
         .ok_or_else(|| format!("Unknown source: {source_id}"))?;
 
-    let items = adapter.fetch().await?;
+    let (items, warnings) = adapter.fetch_with_warnings().await?;
 
     {
         let conn = db.lock().map_err(|e| e.to_string())?;
         store_skills(&conn, &source_id, &items)?;
     }
 
-    Ok(items)
+    Ok(RefreshSourcesResult {
+        skills: items,
+        warnings: warnings
+            .into_iter()
+            .map(|message| RefreshWarning {
+                source_id: source_id.clone(),
+                message,
+            })
+            .collect(),
+    })
 }
 
 #[tauri::command]
 pub async fn refresh_source(
     db: State<'_, DbState>,
     source_id: String,
-) -> Result<Vec<SkillItem>, String> {
+) -> Result<RefreshSourcesResult, String> {
     refresh_source_inner(std::sync::Arc::clone(&db.0), source_id).await
 }
 
 /// Refresh all enabled sources with stale cache.
 pub async fn refresh_all_sources_inner(
     db: Arc<Mutex<Connection>>,
-) -> Result<Vec<SkillItem>, String> {
+) -> Result<RefreshSourcesResult, String> {
     let source_ids: Vec<String> = {
         let conn = db.lock().map_err(|e| e.to_string())?;
         enabled_source_ids(&conn)?
     };
 
     let registry = SourceRegistry::new();
+    let mut warnings: Vec<RefreshWarning> = vec![];
 
     for sid in &source_ids {
         let is_fresh = {
@@ -207,12 +218,16 @@ pub async fn refresh_all_sources_inner(
         if is_fresh { continue; }
 
         if let Some(adapter) = registry.get_adapter(sid) {
-            match adapter.fetch().await {
-                Ok(items) => {
+            match adapter.fetch_with_warnings().await {
+                Ok((items, adapter_warnings)) => {
                     let conn = db.lock().map_err(|e| e.to_string())?;
                     if let Err(e) = store_skills(&conn, sid, &items) {
                         log::warn!("Failed to cache {sid}: {e}");
                     }
+                    warnings.extend(adapter_warnings.into_iter().map(|message| RefreshWarning {
+                        source_id: sid.clone(),
+                        message,
+                    }));
                 }
                 Err(e) => log::warn!("Failed to fetch {sid}: {e}"),
             }
@@ -220,11 +235,14 @@ pub async fn refresh_all_sources_inner(
     }
 
     let conn = db.lock().map_err(|e| e.to_string())?;
-    load_skills(&conn, &source_ids)
+    Ok(RefreshSourcesResult {
+        skills: load_skills(&conn, &source_ids)?,
+        warnings,
+    })
 }
 
 #[tauri::command]
-pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem>, String> {
+pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<RefreshSourcesResult, String> {
     refresh_all_sources_inner(std::sync::Arc::clone(&db.0)).await
 }
 
@@ -232,7 +250,7 @@ pub async fn refresh_all_sources(db: State<'_, DbState>) -> Result<Vec<SkillItem
 pub fn get_skill_inner(conn: &Connection, id: String) -> Result<Option<SkillItem>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars \
+            "SELECT id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars, category \
              FROM skill_cache WHERE id = ?1",
         )
         .map_err(|e| e.to_string())?;
@@ -414,12 +432,12 @@ fn persist_online_results(conn: &Connection, items: &[SkillItem]) -> Result<(), 
         let strategy = item.install_strategy.map(|s| s.as_str().to_string());
         conn.execute(
             "INSERT OR REPLACE INTO skill_cache \
-             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             (id, source_id, name, author, description, tags, repo_url, detail_url, updated_at, compatible_tools, install_strategy, archive_url, stars, category) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 item.id, item.source_id, item.name, item.author, item.description,
                 tags, item.repo_url, item.detail_url, item.updated_at, tools,
-                strategy, item.archive_url, item.stars,
+                strategy, item.archive_url, item.stars, item.category,
             ],
         )
         .map_err(|e| e.to_string())?;

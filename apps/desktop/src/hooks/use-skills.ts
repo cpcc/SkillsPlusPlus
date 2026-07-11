@@ -14,7 +14,7 @@ export function useRefreshAllSources() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => ipc.refreshAllSources(),
-    onSuccess: (data) => qc.setQueryData(SKILLS_KEY, data),
+    onSuccess: (data) => qc.setQueryData(SKILLS_KEY, data.skills),
   });
 }
 

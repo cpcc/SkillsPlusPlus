@@ -90,6 +90,9 @@ pub struct SkillItem {
     /// copy/archive/skills_cli 时使用的归档下载地址。
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub archive_url: Option<String>,
+    /// CI 聚合阶段生成的分类（对齐 FilterBar 17 类）。registry 源必有；其它源可能为空。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -99,6 +102,20 @@ pub struct SourceRow {
     pub name: String,
     pub base_url: String,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshWarning {
+    pub source_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshSourcesResult {
+    pub skills: Vec<SkillItem>,
+    pub warnings: Vec<RefreshWarning>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

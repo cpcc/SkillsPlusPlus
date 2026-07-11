@@ -43,8 +43,15 @@ export function SkillCard({ skill }: Props) {
         </p>
       )}
 
-      {/* Tags */}
+      {/* Tags（若有 category，左侧高亮徽章） */}
       <div className="mt-3 flex flex-wrap gap-1.5">
+        {skill.category && (
+          <span
+            className="rounded-full border border-[var(--color-accent-muted)] bg-[var(--color-accent-subtle)] px-2 py-[1px] text-[11px] font-medium text-[var(--color-accent-text)]"
+          >
+            {skill.category}
+          </span>
+        )}
         {skill.tags.slice(0, 3).map((tag) => (
           <span
             key={tag}

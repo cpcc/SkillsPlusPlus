@@ -7,7 +7,7 @@ test.describe("Discover Page", () => {
 
   test.describe("Page layout", () => {
     test("should display page title '发现'", async ({ page }) => {
-      await expect(page.locator("h2")).toContainText("发现");
+      await expect(page.locator("h1")).toContainText("发现");
     });
 
     test("should display skill count info", async ({ page }) => {
@@ -70,23 +70,20 @@ test.describe("Discover Page", () => {
 
   test.describe("Filter bar", () => {
     test("should display source filter dropdown", async ({ page }) => {
-      const sourceFilter = page.locator("select").first();
+      const sourceFilter = page.locator("select");
       await expect(sourceFilter).toBeVisible();
     });
 
-    test("should display tool filter dropdown", async ({ page }) => {
-      const toolFilter = page.locator("select").last();
-      await expect(toolFilter).toBeVisible();
-    });
+    test("should render category navigation or overflow toggle", async ({ page }) => {
+      const categoryNav = page.locator("nav").filter({ has: page.locator("button") }).first();
+      await expect(categoryNav).toBeVisible();
 
-    test("should have default option '全部来源'", async ({ page }) => {
-      const sourceFilter = page.locator("select").first();
-      await expect(sourceFilter).toHaveValue("");
-    });
+      const allTab = page.getByRole("button", { name: "全部" });
+      const expandButton = page.getByRole("button", { name: "展开" });
+      const hasAllTab = await allTab.isVisible().catch(() => false);
+      const hasExpand = await expandButton.isVisible().catch(() => false);
 
-    test("should have default option '全部工具'", async ({ page }) => {
-      const toolFilter = page.locator("select").last();
-      await expect(toolFilter).toHaveValue("");
+      expect(hasAllTab || hasExpand).toBeTruthy();
     });
   });
 
