@@ -48,6 +48,10 @@ RULES: list[tuple[list[str], str]] = [
 ]
 
 
+def _get_llm_api_key() -> str:
+    return os.environ.get("LLM_API_KEY", "").strip()
+
+
 def _match_category(skill: SkillItem) -> Optional[str]:
     if skill.category and skill.category in CATEGORIES:
         return skill.category
@@ -69,7 +73,7 @@ def _llm_classify_batch(skills: list[SkillItem]) -> dict[int, str]:
 
     无 LLM_API_KEY 时返回空 dict（即不使用 LLM）。
     """
-    api_key = os.environ.get("LLM_API_KEY")
+    api_key = _get_llm_api_key()
     model = os.environ.get("LLM_MODEL", "claude-haiku-4-5-20251001")
     if not api_key:
         return {}
@@ -128,7 +132,7 @@ def classify(items: list[SkillItem]) -> list[SkillItem]:
 
     # 2) LLM 兜底（可选），分批
     BATCH = 25
-    if needs_llm and os.environ.get("LLM_API_KEY"):
+    if needs_llm and _get_llm_api_key():
         for start in range(0, len(needs_llm), BATCH):
             chunk = needs_llm[start:start + BATCH]
             mapping = _llm_classify_batch([s for _, s in chunk])
