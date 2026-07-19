@@ -180,3 +180,22 @@ export type FileTreeNode = {
   /** read_dir 失败时填。 */
   error?: string | null;
 };
+
+// ===== 镜像配置 =====
+export type MirrorConfig = {
+  /** 是否启用镜像 fallback */
+  enabled: boolean;
+  /** GitHub 镜像候选前缀列表（按优先级），空字符串代表直连 */
+  githubMirrors: string[];
+};
+
+export type MirrorHealth = {
+  /** 镜像前缀（空字符串表示直连） */
+  prefix: string;
+  /** 是否可达（任一测试 URL 成功） */
+  reachable: boolean;
+  /** 首个成功 URL 的响应时间（毫秒），失败时为 null */
+  latencyMs: number | null;
+  /** 错误信息（仅 unreachable 时有值） */
+  error?: string;
+};

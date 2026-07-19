@@ -8,3 +8,5 @@ pub mod canonical_store;
 pub mod lockfile;
 pub mod symlink;
 pub mod http_bridge;
+pub mod mirror;
+pub mod net_resilient;

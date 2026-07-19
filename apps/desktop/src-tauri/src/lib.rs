@@ -37,6 +37,9 @@ pub fn run() {
                 eprintln!("[import_existing_skills] startup import failed: {e}");
             }
 
+            // 启动时从 DB 初始化镜像配置
+            crate::services::mirror::init_config(&conn);
+
             let db_arc = Arc::new(Mutex::new(conn));
             app.manage(DbState(std::sync::Arc::clone(&db_arc)));
 

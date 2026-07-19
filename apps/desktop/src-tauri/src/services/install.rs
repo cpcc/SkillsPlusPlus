@@ -3,10 +3,11 @@ use crate::services::canonical_store as cstore;
 use crate::services::lockfile::{self, LockEntry};
 use crate::services::skill_md;
 use crate::services::symlink;
+use crate::services::{mirror, net_resilient};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Whether a filesystem entry name is hidden / non-skill (starts with `.`).
 fn is_hidden(name: &str) -> bool {
@@ -93,8 +94,36 @@ pub fn install_dispatch(
 ) -> Result<InstallOutcome, String> {
     match strategy {
         InstallStrategy::Git => {
-            let lines = git_clone(repo_url, &target.join(skill_name))?;
-            let hash = cstore::compute_folder_hash(&target.join(skill_name));
+            let target_dir = target.join(skill_name);
+            // 先试 git clone（带镜像 fallback）。
+            // 失败时若有 archive_url，降级到 archive 下载（参考借鉴文档的"放弃 brew 改镜像直下"思路）。
+            let lines = match git_clone(repo_url, &target_dir) {
+                Ok(lines) => lines,
+                Err(clone_err) => {
+                    log::warn!("git_clone failed, trying archive fallback: {}", clone_err);
+                    if let Some(url) = archive_url.filter(|u| !u.is_empty()) {
+                        download_and_extract(url, &target_dir, /* strip_git = */ true)
+                            .map_err(|e| format!(
+                                "git clone failed ({clone_err}); archive fallback also failed: {e}"
+                            ))?;
+                        let mut lines = vec![format!("git clone failed, fell back to archive: {}", clone_err)];
+                        lines.push(format!("archive install done -> {}", target_dir.display()));
+                        lines
+                    } else if !repo_url.is_empty() {
+                        // 退而求其次：用 repo_url 当 archive url 试一次（GitHub 的 repo_url 通常是 web url，不行）
+                        download_and_extract(repo_url, &target_dir, /* strip_git = */ true)
+                            .map_err(|e| format!(
+                                "git clone failed ({clone_err}); repo_url archive fallback also failed: {e}"
+                            ))?;
+                        let mut lines = vec![format!("git clone failed, fell back to repo_url: {}", clone_err)];
+                        lines.push(format!("archive install done -> {}", target_dir.display()));
+                        lines
+                    } else {
+                        return Err(clone_err);
+                    }
+                }
+            };
+            let hash = cstore::compute_folder_hash(&target_dir);
             Ok(InstallOutcome {
                 log_lines: lines,
                 content_hash: hash,
@@ -130,10 +159,19 @@ pub fn install_dispatch(
     }
 }
 
-/// Returns log lines on success, or an error string.
-pub fn git_clone(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
+/// 单次 `git clone` 尝试。不带镜像 fallback，仅给 `git_clone` 内部循环用。
+///
+/// 用 `http.lowSpeedLimit` + `http.lowSpeedTime` 实现低速超时：
+/// 持续 30s 内速度低于 1KB/s 则终止，避免国内网络下 git clone 永远挂起。
+fn try_git_clone_once(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
     let output = std::process::Command::new("git")
-        .args(["clone", "--depth=1", "--progress", repo_url, &target.to_string_lossy()])
+        .args([
+            "-c", "http.lowSpeedLimit=1000",
+            "-c", "http.lowSpeedTime=30",
+            "clone", "--depth=1", "--progress",
+            repo_url,
+            &target.to_string_lossy(),
+        ])
         .output()
         .map_err(|e| format!("Failed to run git: {e}"))?;
 
@@ -152,6 +190,41 @@ pub fn git_clone(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
     } else {
         Err(lines.last().cloned().unwrap_or_else(|| "git clone failed".to_string()))
     }
+}
+
+/// `git clone` 带镜像 fallback。
+///
+/// 流程（参考 `docs/中国网络抖动解决方案借鉴.md`）：
+/// 1. 直连 `github.com`（海外用户无感）
+/// 2. 直连失败 → 依次试 `mirror::GITHUB_MIRRORS` 里的镜像（如 `gh-proxy.com`）
+/// 3. 全失败 → 返回最后一次错误，调用方可选择降级到 archive 下载
+///
+/// 每条 URL 都用 `http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` 限速超时，
+/// 避免国内网络下 git clone 永远挂起。
+pub fn git_clone(repo_url: &str, target: &Path) -> Result<Vec<String>, String> {
+    let candidate_urls = mirror::candidate_urls(repo_url);
+    let mut last_err = String::new();
+
+    for url in &candidate_urls {
+        log::info!("git_clone: trying {}", url);
+        match try_git_clone_once(url, target) {
+            Ok(lines) => return Ok(lines),
+            Err(e) => {
+                log::warn!("git_clone: {} failed: {}", url, e);
+                last_err = e;
+                // 清理可能的半成品，避免下次 clone 报 "already exists"
+                if target.exists() {
+                    let _ = fs::remove_dir_all(target);
+                }
+            }
+        }
+    }
+
+    Err(if last_err.is_empty() {
+        "git clone failed (no candidate urls)".to_string()
+    } else {
+        format!("git clone failed (tried {} candidates): {}", candidate_urls.len(), last_err)
+    })
 }
 
 /// HTTP GET tar.gz/zip → 解压 → strip 顶层目录 → 写入 target。
@@ -204,40 +277,19 @@ pub fn extract_archive_from_bytes(bytes: &[u8], target: &Path, strip_git: bool) 
 }
 
 fn blocking_get_bytes(url: &str) -> Result<Vec<u8>, String> {
-    // 同步阻塞执行 reqwest，避免在非 async 上下文中调用。
-    let url = url.to_string();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                let _ = tx.send(Err(format!("build tokio runtime: {e}")));
-                return;
-            }
-        };
-        let result: Result<Vec<u8>, String> = rt.block_on(async move {
-            let client = reqwest::Client::builder()
-                .user_agent("skills-plus-plus/0.1")
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .map_err(|e| e.to_string())?;
-            let resp = client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| format!("http get: {e}"))?;
-            if !resp.status().is_success() {
-                return Err(format!("http status {}", resp.status()));
-            }
-            let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-            Ok(bytes.to_vec())
-        });
-        let _ = tx.send(result);
-    });
-    rx.recv().map_err(|e| format!("http thread join: {e}"))?
+    // 走公共网络韧性工具：多 URL（直连 + 镜像）+ 重试 + curl 兜底。
+    // 参考 `docs/中国网络抖动解决方案借鉴.md`：国内直连 codeload.github.com 极慢/不可达，
+    // gh-proxy.com 镜像可大幅改善。
+    let urls = mirror::candidate_urls(url);
+    let opts = net_resilient::FetchOptions {
+        urls,
+        max_attempts: 2,
+        // 归档下载通常较大，读超时放宽
+        read_timeout: Duration::from_secs(120),
+        ..Default::default()
+    };
+    let fetched = net_resilient::fetch_bytes_blocking(&opts)?;
+    Ok(fetched.bytes)
 }
 
 fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<(), String> {

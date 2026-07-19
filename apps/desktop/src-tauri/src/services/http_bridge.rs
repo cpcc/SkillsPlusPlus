@@ -7,6 +7,7 @@
 
 use crate::commands::{
     app as app_cmd, directory as dir_cmd, install as install_cmd, source as src_cmd,
+    settings as settings_cmd,
 };
 use axum::{
     extract::{Path, State},
@@ -113,6 +114,11 @@ struct ListDirectoryTreeArgs {
 #[derive(Deserialize)]
 struct ReadTextFileArgs {
     path: String,
+}
+
+#[derive(Deserialize)]
+struct SetMirrorConfigArgs {
+    config: settings_cmd::MirrorConfig,
 }
 
 /// Convert all top-level keys of a JSON object from camelCase to snake_case
@@ -350,6 +356,14 @@ async fn invoke_handler(
             Ok(a) => install_cmd::open_skill_dir_inner(&a.path).map(|()| Value::Null),
             Err(e) => Err(e),
         },
+        "get_mirror_config" => with_conn(&st, settings_cmd::get_mirror_config_inner),
+        "set_mirror_config" => match parse_args::<SetMirrorConfigArgs>(&args) {
+            Ok(a) => with_conn(&st, |c| settings_cmd::set_mirror_config_inner(c, a.config)),
+            Err(e) => Err(e),
+        },
+        "check_mirror_health" => {
+            settings_cmd::check_mirror_health_inner().await.map(to_json)
+        }
 
         other => Err(format!("unknown command: {other}")),
     };

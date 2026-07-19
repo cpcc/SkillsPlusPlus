@@ -1,5 +1,6 @@
 use crate::models::{InstallStrategy, SkillItem};
 use crate::services::source::SourceAdapter;
+use crate::services::{mirror, net_resilient};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::pin::Pin;
@@ -64,12 +65,6 @@ impl SourceAdapter for GithubAdapter {
 
     fn fetch(&self) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<SkillItem>, String>> + Send>> {
         Box::pin(async {
-            let client = reqwest::Client::builder()
-                .user_agent("skills-plus-plus/0.1")
-                .timeout(std::time::Duration::from_secs(15))
-                .build()
-                .map_err(|e| e.to_string())?;
-
             let mut all_items: Vec<SkillItem> = vec![];
             let mut seen: HashSet<u64> = HashSet::new();
 
@@ -77,19 +72,24 @@ impl SourceAdapter for GithubAdapter {
                 let url = format!(
                     "https://api.github.com/search/repositories?q=topic:{topic}&sort=stars&order=desc&per_page=30"
                 );
-                let result = client
-                    .get(&url)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .send()
-                    .await;
-
-                let resp: GithubSearchResponse = match result {
-                    Ok(r) => match r.json().await {
-                        Ok(d) => d,
-                        Err(e) => { log::warn!("GitHub parse error for topic {topic}: {e}"); continue; }
-                    },
-                    Err(e) => { log::warn!("GitHub fetch error for topic {topic}: {e}"); continue; }
+                // 走公共网络韧性工具：直连 → 镜像 → curl 兜底。
+                // 参考 `docs/中国网络抖动解决方案借鉴.md`：国内直连 api.github.com 不稳定。
+                let urls = mirror::candidate_urls(&url);
+                let opts = net_resilient::FetchOptions {
+                    urls,
+                    max_attempts: 2,
+                    headers: vec![
+                        net_resilient::Header::new("Accept", "application/vnd.github+json"),
+                        net_resilient::Header::new("X-GitHub-Api-Version", "2022-11-28"),
+                    ],
+                    ..Default::default()
+                };
+                let resp: GithubSearchResponse = match net_resilient::fetch_json(&opts).await {
+                    Ok((d, _etag)) => d,
+                    Err(e) => {
+                        log::warn!("GitHub fetch error for topic {topic}: {e}");
+                        continue;
+                    }
                 };
 
                 for repo in resp.items {

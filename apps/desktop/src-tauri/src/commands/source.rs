@@ -330,37 +330,40 @@ pub async fn fetch_skill_md_inner(
     };
 
     // 4. Fetch SKILL.md and README.md concurrently, prefer SKILL.md
-    let client = reqwest::Client::builder()
-        .user_agent("skills-plus-plus/0.1")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
+    //    走公共网络韧性工具：直连 → 镜像（gh-proxy.com）→ curl 兜底。
+    //    参考 `docs/中国网络抖动解决方案借鉴.md`：国内直连 raw.githubusercontent.com 不可达。
     async fn try_fetch_file(
-        client: &reqwest::Client,
         owner: &str,
         repo: &str,
         filename: &str,
     ) -> Option<(Option<FrontmatterMeta>, String)> {
         for branch in ["main", "master"] {
-            let url = format!(
+            let raw_url = format!(
                 "https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/{branch}/{filename}"
             );
-            match client.get(&url).send().await {
-                Ok(r) if r.status().is_success() => {
-                    let text = r.text().await.ok()?;
+            // 候选：直连 → gh-proxy 镜像
+            let urls = crate::services::mirror::candidate_urls(&raw_url);
+            let opts = crate::services::net_resilient::FetchOptions {
+                urls,
+                max_attempts: 2,
+                ..Default::default()
+            };
+            match crate::services::net_resilient::fetch_text(&opts).await {
+                Ok((text, _etag)) => {
                     let (meta, body) = parse_frontmatter_and_strip(&text);
                     return Some((meta, body));
                 }
-                _ => continue,
+                Err(e) => {
+                    log::warn!("fetch_skill_md: {} failed: {}", raw_url, e);
+                }
             }
         }
         None
     }
 
     let (sk, rm) = tokio::join!(
-        try_fetch_file(&client, &owner, &repo, "SKILL.md"),
-        try_fetch_file(&client, &owner, &repo, "README.md"),
+        try_fetch_file(&owner, &repo, "SKILL.md"),
+        try_fetch_file(&owner, &repo, "README.md"),
     );
     let content = sk.or(rm);
 

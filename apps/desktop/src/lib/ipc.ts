@@ -4,6 +4,7 @@ import type {
   InstallPreview, InstalledSkill,
   InstallStrategy, LockEntry, CanonicalSkill, UpdateInfo,
   FileTreeNode, RefreshSourcesResult,
+  MirrorConfig, MirrorHealth,
 } from "@skills-pp/shared";
 
 /**
@@ -120,4 +121,9 @@ export const ipc = {
   // Canonical store / lockfile（与 npx skills 互通）
   readLockfile: (): Promise<Record<string, LockEntry>> => call("read_lockfile"),
   listCanonicalSkills: (): Promise<CanonicalSkill[]> => call("list_canonical_skills"),
+
+  // Settings
+  getMirrorConfig: (): Promise<MirrorConfig> => call("get_mirror_config"),
+  setMirrorConfig: (config: MirrorConfig): Promise<void> => call("set_mirror_config", { config }),
+  checkMirrorHealth: (): Promise<MirrorHealth[]> => call("check_mirror_health"),
 };

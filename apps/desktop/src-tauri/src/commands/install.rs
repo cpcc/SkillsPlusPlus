@@ -1,4 +1,4 @@
-use crate::commands::app::DbState;
+use crate::commands::app::{acquire_install_lock, DbState};
 use crate::models::{InstallPreview, InstallStrategy, InstalledSkillRow};
 use crate::services::canonical_store as cstore;
 use crate::services::install as svc;
@@ -100,6 +100,7 @@ pub async fn install_skill_inner(
     strategy: Option<InstallStrategy>,
     archive_url: Option<String>,
 ) -> Result<(), String> {
+    let _guard = crate::commands::app::acquire_install_lock().await; // 防连点互斥
     let strategy = strategy.unwrap_or_default();
 
     // Look up directory path + tool_name
@@ -224,6 +225,7 @@ pub async fn reinstall_skill_inner(
     strategy: Option<InstallStrategy>,
     archive_url: Option<String>,
 ) -> Result<(), String> {
+    let _guard = crate::commands::app::acquire_install_lock().await; // 防连点互斥
     install_skill_inner(db, skill_id, skill_name, repo_url, directory_id, true, strategy, archive_url).await
 }
 

@@ -1,9 +1,10 @@
 import { useAppInfo } from "../../hooks/use-app-info";
 import { useTheme, type ThemePreference } from "../../hooks/use-theme";
 import { useUpdateCheck } from "../../hooks/use-update-check";
+import { useMirrorConfig, useSetMirrorConfig, useMirrorHealth } from "../../hooks/use-mirror";
 import { useToast } from "../../components/ui/toast";
 import { ipc } from "../../lib/ipc";
-import { Info, Database, Monitor, SunMoon, RefreshCw, Download } from "lucide-react";
+import { Info, Database, Monitor, SunMoon, RefreshCw, Download, Globe, Plus, Trash2, Activity } from "lucide-react";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "light", label: "浅色" },
@@ -15,6 +16,9 @@ export default function SettingsPage() {
   const { data, isLoading, error } = useAppInfo();
   const { preference, setPreference } = useTheme();
   const updateQuery = useUpdateCheck();
+  const { data: mirrorConfig } = useMirrorConfig();
+  const setMirrorConfigMutation = useSetMirrorConfig();
+  const { data: mirrorHealth, refetch: refetchHealth, isFetching: checkingHealth } = useMirrorHealth();
   const toast = useToast();
 
   const handleCheckUpdate = async () => {
@@ -34,6 +38,41 @@ export default function SettingsPage() {
   const handleDownload = (url: string, version: string) => {
     ipc.openReleaseUrl(url);
     toast(`正在打开 GitHub Release 页面`, `v${version}`);
+  };
+
+  // 镜像配置操作
+  const handleToggleMirrorEnabled = (enabled: boolean) => {
+    if (!mirrorConfig) return;
+    setMirrorConfigMutation.mutate({ ...mirrorConfig, enabled }, {
+      onSuccess: () => toast("已保存镜像配置"),
+      onError: (e) => toast("保存失败", String(e), "error"),
+    });
+  };
+
+  const handleAddMirror = () => {
+    if (!mirrorConfig) return;
+    const newMirror = window.prompt("输入镜像前缀（如 https://gh-proxy.com）：");
+    if (!newMirror?.trim()) return;
+    setMirrorConfigMutation.mutate(
+      { ...mirrorConfig, githubMirrors: [...mirrorConfig.githubMirrors, newMirror.trim()] },
+      {
+        onSuccess: () => toast("已添加镜像"),
+        onError: (e) => toast("添加失败", String(e), "error"),
+      }
+    );
+  };
+
+  const handleRemoveMirror = (idx: number) => {
+    if (!mirrorConfig) return;
+    const next = mirrorConfig.githubMirrors.filter((_, i) => i !== idx);
+    setMirrorConfigMutation.mutate({ ...mirrorConfig, githubMirrors: next }, {
+      onSuccess: () => toast("已移除镜像"),
+      onError: (e) => toast("移除失败", String(e), "error"),
+    });
+  };
+
+  const handleCheckHealth = () => {
+    refetchHealth();
   };
 
   return (
@@ -73,6 +112,101 @@ export default function SettingsPage() {
               })}
             </div>
           </InfoRow>
+        </div>
+      </div>
+
+      {/* Mirror Settings */}
+      <div className="mt-8">
+        <h3 className="mb-3 text-[12px] font-medium uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+          网络镜像
+        </h3>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] divide-y divide-[var(--color-border-subtle)]">
+          <InfoRow icon={Globe} label="启用镜像">
+            <button
+              type="button"
+              onClick={() => mirrorConfig && handleToggleMirrorEnabled(!mirrorConfig.enabled)}
+              className={[
+                "w-12 h-6 rounded-full relative transition-colors",
+                mirrorConfig?.enabled
+                  ? "bg-[var(--color-accent-subtle)]"
+                  : "bg-[var(--color-border-subtle)]",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "absolute top-1 w-4 h-4 rounded-full transition-transform shadow-sm",
+                  mirrorConfig?.enabled ? "left-7 translate-x-0" : "left-1",
+                  mirrorConfig?.enabled
+                    ? "bg-[var(--color-accent-text)]"
+                    : "bg-[var(--color-text-tertiary)]",
+                ].join(" ")}
+              />
+            </button>
+          </InfoRow>
+
+          {mirrorConfig && mirrorConfig.enabled && (
+            <>
+              <div className="px-5 py-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-[var(--color-text-tertiary)]">镜像列表</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCheckHealth}
+                      disabled={checkingHealth}
+                      className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+                    >
+                      <Activity className={`h-3 w-3 ${checkingHealth ? "animate-pulse" : ""}`} />
+                      测试连通性
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddMirror}
+                      className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      <Plus className="h-3 w-3" />
+                      添加
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {mirrorConfig.githubMirrors.map((prefix, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] p-2.5"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--color-text-primary)] font-mono">
+                        {prefix === "" ? "<直连>" : prefix}
+                      </span>
+                      {mirrorHealth && mirrorHealth.length > idx && (
+                        <span
+                          className={[
+                            "text-[11px] px-1.5 py-0.5 rounded",
+                            mirrorHealth[idx].reachable
+                              ? "bg-[var(--color-success-subtle)] text-[var(--color-success)]"
+                              : "bg-[var(--color-danger-subtle)] text-[var(--color-danger)]",
+                          ].join(" ")}
+                        >
+                          {mirrorHealth[idx].reachable
+                            ? `${mirrorHealth[idx].latencyMs ?? "-"}ms`
+                            : "不可达"}
+                        </span>
+                      )}
+                      {idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMirror(idx)}
+                          className="shrink-0 rounded-[var(--radius-sm)] p-1 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-danger)]"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

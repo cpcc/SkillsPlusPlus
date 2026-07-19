@@ -1,12 +1,26 @@
 use crate::models::{AppInfo, UpdateInfo};
+use crate::services::{mirror, net_resilient};
 use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Manager, State};
 
 /// GitHub Releases latest 接口。修改时同步 release.yml 与 git remote。
 const RELEASES_API: &str = "https://api.github.com/repos/cpcc/SkillsPlusPlus/releases/latest";
 
 pub struct DbState(pub Arc<Mutex<Connection>>);
+
+/// 安装互斥锁：防止用户连点导致并发安装写同一目标目录。
+/// 用 OnceLock 全局单例（不依赖 Tauri State，方便任何地方用）。
+static INSTALL_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+
+/// 拿到安装锁的函数（返回 guard，drop guard 后自动释放）。
+/// guard 是 Send，可在 Tauri async 命令中使用。
+pub async fn acquire_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    INSTALL_LOCK
+        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+        .lock()
+        .await
+}
 
 pub fn get_app_info_inner(
     conn: &Connection,
@@ -63,22 +77,21 @@ pub async fn check_app_update(app: tauri::AppHandle) -> Result<UpdateInfo, Strin
 
 /// 内部实现（与 Tauri `AppHandle` 解耦），http_bridge 复用。
 pub async fn check_app_update_inner(current_version: String) -> Result<UpdateInfo, String> {
-    let resp: serde_json::Value = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?
-        .get(RELEASES_API)
-        // GitHub REST API 强制要求 User-Agent
-        .header("User-Agent", format!("SkillsPlusPlus/{}", current_version))
-        .header("Accept", "application/vnd.github+json")
-        .send()
+    // 走公共网络韧性工具：直连 → 镜像 → curl 兜底。
+    // 参考 `docs/中国网络抖动解决方案借鉴.md`：国内直连 api.github.com 不稳定。
+    let urls = mirror::candidate_urls(RELEASES_API);
+    let opts = net_resilient::FetchOptions {
+        urls,
+        max_attempts: 2,
+        headers: vec![
+            net_resilient::Header::new("Accept", "application/vnd.github+json"),
+            net_resilient::Header::new("User-Agent", format!("SkillsPlusPlus/{}", current_version)),
+        ],
+        ..Default::default()
+    };
+    let resp: serde_json::Value = net_resilient::fetch_json(&opts)
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
+        .map(|(v, _etag)| v)?;
 
     let tag = resp["tag_name"].as_str().unwrap_or("").trim();
     let latest = tag.trim_start_matches('v').to_string();
