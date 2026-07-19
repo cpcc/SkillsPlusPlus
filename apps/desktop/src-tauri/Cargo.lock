@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "axum 0.7.9",
  "dirs 5.0.1",
