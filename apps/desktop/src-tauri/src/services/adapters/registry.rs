@@ -33,7 +33,6 @@ const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// 网络参数与 net_resilient 对齐。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_TIMEOUT: Duration = Duration::from_secs(45);
-const CURL_MAX_TIME: Duration = Duration::from_secs(90);
 
 const ETAG_FILE: &str = "registry.etag";
 

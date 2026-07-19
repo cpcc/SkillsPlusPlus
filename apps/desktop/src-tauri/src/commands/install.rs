@@ -1,4 +1,4 @@
-use crate::commands::app::{acquire_install_lock, DbState};
+use crate::commands::app::DbState;
 use crate::models::{InstallPreview, InstallStrategy, InstalledSkillRow};
 use crate::services::canonical_store as cstore;
 use crate::services::install as svc;
