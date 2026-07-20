@@ -6,11 +6,16 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 /// 镜像配置（前端 ↔ 后端）。
+///
+/// `rename` + `alias` 双名兼容：Tauri 模式前端发 camelCase（`githubMirrors`），
+/// HTTP bridge 模式 `camel_to_snake_keys` 会转成 snake_case（`github_mirrors`），
+/// 两种都能正确反序列化。序列化始终用 camelCase 对齐前端类型。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirrorConfig {
     /// 是否启用镜像 fallback。
     pub enabled: bool,
     /// GitHub 镜像候选前缀列表（按优先级）。空字符串代表直连。
+    #[serde(rename = "githubMirrors", alias = "github_mirrors")]
     pub github_mirrors: Vec<String>,
 }
 
@@ -34,6 +39,7 @@ impl From<MirrorConfig> for mirror::MirrorConfig {
 
 /// 单个镜像的健康检查结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MirrorHealth {
     /// 镜像前缀（空字符串表示直连）。
     pub prefix: String,

@@ -199,3 +199,116 @@ export type MirrorHealth = {
   /** 错误信息（仅 unreachable 时有值） */
   error?: string;
 };
+
+// ===== 跨设备同步 =====
+
+/** 同步快照中的一条安装记录 */
+export type SyncInstalledSkill = {
+  name: string;
+  toolName: string;
+  /** 相对于 home 的目录路径（/ 分隔符） */
+  directoryRelativePath: string;
+  sourceId?: string;
+  repoUrl?: string;
+  installStrategy: InstallStrategy;
+  contentHash?: string;
+  /** 相对于 home 的 canonical 路径 */
+  canonicalRelativePath?: string;
+  installedAt: string;
+  author?: string;
+  description?: string;
+};
+
+/** 同步快照中的一条自定义目录 */
+export type SyncDirectory = {
+  id: string;
+  toolName: string;
+  /** 相对于 home 的目录路径（/ 分隔符） */
+  relativePath: string;
+  isDefault: boolean;
+};
+
+/** 来源站开关 */
+export type SyncSourcePref = {
+  id: string;
+  enabled: boolean;
+};
+
+/** 同步快照（导出/导入的 JSON 根结构） */
+export type SyncSnapshot = {
+  version: number;
+  exportedAt: string;
+  deviceName: string;
+  platform: string;
+  installedSkills: SyncInstalledSkill[];
+  customDirectories: SyncDirectory[];
+  sourcePreferences: SyncSourcePref[];
+  appSettings: Record<string, string>;
+  lockfile: Record<string, LockEntry>;
+};
+
+/** 导入操作的汇总结果 */
+export type ImportResult = {
+  importedSkills: number;
+  skippedSkills: number;
+  importedDirectories: number;
+  updatedSources: number;
+  updatedSettings: number;
+  mergedLockfileEntries: number;
+};
+
+// ===== Phase 2: WebDAV 云同步 =====
+
+/** WebDAV 同步配置 */
+export type SyncConfig = {
+  /** WebDAV 服务器 URL */
+  webdavUrl: string;
+  /** WebDAV 用户名 */
+  webdavUsername: string;
+  /** WebDAV 密码 */
+  webdavPassword: string;
+  /** 远端存储路径 */
+  webdavRemotePath: string;
+  /** 是否启用自动同步 */
+  autoSync: boolean;
+  /** 自动同步间隔（分钟） */
+  autoSyncInterval: number;
+};
+
+/** 同步状态 */
+export type SyncStatus = {
+  /** 上次同步时间（ISO 8601），null 表示从未同步 */
+  lastSyncAt: string | null;
+  /** 上次同步的设备名 */
+  lastSyncDevice: string | null;
+  /** 上次同步结果：success / conflict / error */
+  lastSyncResult: string | null;
+  /** 上次同步的错误信息 */
+  lastSyncError: string | null;
+};
+
+/** 同步冲突 */
+export type SyncConflict = {
+  /** 冲突类型：remote_deleted */
+  kind: string;
+  /** skill 名称 */
+  skillName: string;
+  /** 工具名 */
+  toolName: string;
+  /** 目录相对路径 */
+  directoryRelativePath: string;
+};
+
+/** sync_now 操作的汇总结果 */
+export type SyncResult = {
+  /** 从远端拉取的新安装记录数 */
+  pulledSkills: number;
+  /** 推送到远端的安装记录数 */
+  pushedSkills: number;
+  /** 更新的设置数 */
+  updatedSettings: number;
+  /** 合并的 lockfile 条目数 */
+  mergedLockfileEntries: number;
+  /** 检测到的冲突列表 */
+  conflicts: SyncConflict[];
+};

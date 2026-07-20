@@ -5,6 +5,7 @@ import type {
   InstallStrategy, LockEntry, CanonicalSkill, UpdateInfo,
   FileTreeNode, RefreshSourcesResult,
   MirrorConfig, MirrorHealth,
+  ImportResult, SyncConfig, SyncStatus, SyncResult,
 } from "@skills-pp/shared";
 
 /**
@@ -126,4 +127,18 @@ export const ipc = {
   getMirrorConfig: (): Promise<MirrorConfig> => call("get_mirror_config"),
   setMirrorConfig: (config: MirrorConfig): Promise<void> => call("set_mirror_config", { config }),
   checkMirrorHealth: (): Promise<MirrorHealth[]> => call("check_mirror_health"),
+
+  // Sync (Phase 1: local export/import)
+  exportSyncSnapshot: (): Promise<string> => call("export_sync_snapshot"),
+  importSyncSnapshot: (json: string): Promise<ImportResult> =>
+    call("import_sync_snapshot", { json }),
+
+  // Sync (Phase 2: WebDAV)
+  getSyncConfig: (): Promise<SyncConfig> => call("get_sync_config"),
+  setSyncConfig: (config: SyncConfig): Promise<void> =>
+    call("set_sync_config", { config }),
+  getSyncStatus: (): Promise<SyncStatus> => call("get_sync_status"),
+  syncNow: (): Promise<SyncResult> => call("sync_now"),
+  testWebdavConnection: (config: SyncConfig): Promise<void> =>
+    call("test_webdav_connection", { config }),
 };

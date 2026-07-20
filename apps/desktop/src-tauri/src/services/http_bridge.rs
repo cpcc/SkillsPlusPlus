@@ -7,7 +7,7 @@
 
 use crate::commands::{
     app as app_cmd, directory as dir_cmd, install as install_cmd, source as src_cmd,
-    settings as settings_cmd,
+    settings as settings_cmd, sync as sync_cmd,
 };
 use axum::{
     extract::{Path, State},
@@ -119,6 +119,21 @@ struct ReadTextFileArgs {
 #[derive(Deserialize)]
 struct SetMirrorConfigArgs {
     config: settings_cmd::MirrorConfig,
+}
+
+#[derive(Deserialize)]
+struct ImportSyncSnapshotArgs {
+    json: String,
+}
+
+#[derive(Deserialize)]
+struct SetSyncConfigArgs {
+    config: crate::services::sync::SyncConfig,
+}
+
+#[derive(Deserialize)]
+struct TestWebdavConnectionArgs {
+    config: crate::services::sync::SyncConfig,
 }
 
 /// Convert all top-level keys of a JSON object from camelCase to snake_case
@@ -364,6 +379,29 @@ async fn invoke_handler(
         "check_mirror_health" => {
             settings_cmd::check_mirror_health_inner().await.map(to_json)
         }
+
+        // ── Sync ─────────────────────────────────────────────────────
+        "export_sync_snapshot" => with_conn(&st, sync_cmd::export_sync_snapshot_inner),
+        "import_sync_snapshot" => match parse_args::<ImportSyncSnapshotArgs>(&args) {
+            Ok(a) => with_conn(&st, |c| {
+                sync_cmd::import_sync_snapshot_inner(c, &a.json)
+            }),
+            Err(e) => Err(e),
+        },
+        "get_sync_config" => with_conn(&st, |c| Ok(sync_cmd::get_sync_config_inner(c))),
+        "set_sync_config" => match parse_args::<SetSyncConfigArgs>(&args) {
+            Ok(a) => with_conn(&st, |c| sync_cmd::set_sync_config_inner(c, &a.config)),
+            Err(e) => Err(e),
+        },
+        "get_sync_status" => with_conn(&st, |c| Ok(sync_cmd::get_sync_status_inner(c))),
+        "sync_now" => {
+            let db = Arc::clone(&st.db);
+            sync_cmd::sync_now_inner(db).await.map(to_json)
+        }
+        "test_webdav_connection" => match parse_args::<TestWebdavConnectionArgs>(&args) {
+            Ok(a) => sync_cmd::test_webdav_connection_inner(a.config).await.map(to_json),
+            Err(e) => Err(e),
+        },
 
         other => Err(format!("unknown command: {other}")),
     };

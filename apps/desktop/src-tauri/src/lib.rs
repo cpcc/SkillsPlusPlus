@@ -57,6 +57,13 @@ pub fn run() {
             commands::app::get_app_info,
             commands::app::check_app_update,
             commands::app::open_release_url,
+            commands::sync::export_sync_snapshot,
+            commands::sync::import_sync_snapshot,
+            commands::sync::get_sync_config,
+            commands::sync::set_sync_config,
+            commands::sync::get_sync_status,
+            commands::sync::sync_now,
+            commands::sync::test_webdav_connection,
             commands::directory::scan_directories,
             commands::directory::list_directories,
             commands::directory::add_directory,
@@ -85,6 +92,9 @@ pub fn run() {
             commands::install::list_canonical_skills,
             commands::install::import_existing_skills,
             commands::install::open_skill_dir,
+            commands::settings::get_mirror_config,
+            commands::settings::set_mirror_config,
+            commands::settings::check_mirror_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

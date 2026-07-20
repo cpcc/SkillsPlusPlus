@@ -1,10 +1,20 @@
+import { useState } from "react";
 import { useAppInfo } from "../../hooks/use-app-info";
 import { useTheme, type ThemePreference } from "../../hooks/use-theme";
 import { useUpdateCheck } from "../../hooks/use-update-check";
 import { useMirrorConfig, useSetMirrorConfig, useMirrorHealth } from "../../hooks/use-mirror";
+import {
+  useExportSnapshot, useImportSnapshot,
+  useSyncConfig, useSetSyncConfig, DEFAULT_SYNC_CONFIG,
+  useSyncStatus, useSyncNow, useTestWebdavConnection,
+} from "../../hooks/use-sync";
 import { useToast } from "../../components/ui/toast";
 import { ipc } from "../../lib/ipc";
-import { Info, Database, Monitor, SunMoon, RefreshCw, Download, Globe, Plus, Trash2, Activity } from "lucide-react";
+import type { SyncConfig } from "@skills-pp/shared";
+import {
+  Info, Database, Monitor, SunMoon, RefreshCw, Download, Globe, Plus, Trash2,
+  Activity, Upload, FileJson, Cloud, CloudUpload, Wifi, CheckCircle2, AlertCircle, CloudOff,
+} from "lucide-react";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "light", label: "浅色" },
@@ -19,7 +29,16 @@ export default function SettingsPage() {
   const { data: mirrorConfig } = useMirrorConfig();
   const setMirrorConfigMutation = useSetMirrorConfig();
   const { data: mirrorHealth, refetch: refetchHealth, isFetching: checkingHealth } = useMirrorHealth();
+  const exportMutation = useExportSnapshot();
+  const importMutation = useImportSnapshot();
   const toast = useToast();
+
+  // Phase 2: WebDAV sync
+  const { data: syncConfig } = useSyncConfig();
+  const setSyncConfigMutation = useSetSyncConfig();
+  const { data: syncStatus, refetch: refetchSyncStatus } = useSyncStatus();
+  const syncNowMutation = useSyncNow();
+  const testConnectionMutation = useTestWebdavConnection();
 
   const handleCheckUpdate = async () => {
     try {
@@ -73,6 +92,40 @@ export default function SettingsPage() {
 
   const handleCheckHealth = () => {
     refetchHealth();
+  };
+
+  // 同步操作
+  const handleExport = () => {
+    exportMutation.mutate(undefined, {
+      onSuccess: () => toast("导出成功", "配置快照已下载到本地"),
+      onError: (e) => toast("导出失败", String(e), "error"),
+    });
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result);
+      importMutation.mutate(text, {
+        onSuccess: (result) => {
+          const parts: string[] = [];
+          if (result.importedSkills) parts.push(`${result.importedSkills} 个安装记录`);
+          if (result.importedDirectories) parts.push(`${result.importedDirectories} 个目录`);
+          if (result.updatedSources) parts.push(`${result.updatedSources} 个来源开关`);
+          if (result.updatedSettings) parts.push(`${result.updatedSettings} 个设置`);
+          if (result.mergedLockfileEntries) parts.push(`${result.mergedLockfileEntries} 个锁文件条目`);
+          if (result.skippedSkills) parts.push(`${result.skippedSkills} 个已存在跳过`);
+          const summary = parts.length > 0 ? parts.join("、") : "无变更";
+          toast("导入成功", summary);
+        },
+        onError: (e) => toast("导入失败", String(e), "error"),
+      });
+    };
+    reader.readAsText(file);
+    // 重置 input 以便重复选同一文件
+    e.target.value = "";
   };
 
   return (
@@ -210,6 +263,94 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Sync - Phase 1 + Phase 2 */}
+      <div className="mt-8">
+        <h3 className="mb-3 text-[12px] font-medium uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+          跨设备同步
+        </h3>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] divide-y divide-[var(--color-border-subtle)]">
+          {/* Phase 1: 本地导出/导入 */}
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <FileJson className="h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />
+              <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">本地文件</span>
+            </div>
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+              导出当前安装记录、目录配置和设置到 JSON 文件，在另一台设备导入即可同步。
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exportMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+              >
+                {exportMutation.isPending
+                  ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
+                导出配置
+              </button>
+              <label
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] cursor-pointer"
+              >
+                {importMutation.isPending
+                  ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  : <Upload className="h-3.5 w-3.5" />}
+                导入配置
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleImportFile}
+                  className="hidden"
+                  disabled={importMutation.isPending}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Phase 2: WebDAV 云同步 */}
+          <WebDavSyncSection
+            config={syncConfig}
+            status={syncStatus}
+            onSaveConfig={(cfg) => {
+              setSyncConfigMutation.mutate(cfg, {
+                onSuccess: () => toast("已保存同步配置"),
+                onError: (e) => toast("保存失败", String(e), "error"),
+              });
+            }}
+            onTestConnection={(cfg) => {
+              testConnectionMutation.mutate(cfg, {
+                onSuccess: () => toast("连接成功", "WebDAV 服务器可达"),
+                onError: (e) => toast("连接失败", String(e), "error"),
+              });
+            }}
+            onSyncNow={() => {
+              syncNowMutation.mutate(undefined, {
+                onSuccess: (result) => {
+                  const parts: string[] = [];
+                  if (result.pulledSkills) parts.push(`拉取 ${result.pulledSkills} 条`);
+                  if (result.pushedSkills) parts.push(`推送 ${result.pushedSkills} 条`);
+                  if (result.updatedSettings) parts.push(`${result.updatedSettings} 个设置`);
+                  if (result.mergedLockfileEntries) parts.push(`${result.mergedLockfileEntries} 个锁条目`);
+                  if (result.conflicts.length) parts.push(`${result.conflicts.length} 个冲突`);
+                  const summary = parts.length > 0 ? parts.join("、") : "无变更";
+                  if (result.conflicts.length > 0) {
+                    toast("同步完成（有冲突）", `${summary}。远端已删除的 skill 仍保留在本地。`, "error");
+                  } else {
+                    toast("同步成功", summary);
+                  }
+                  refetchSyncStatus();
+                },
+                onError: (e) => toast("同步失败", String(e), "error"),
+              });
+            }}
+            isSyncing={syncNowMutation.isPending}
+            isTesting={testConnectionMutation.isPending}
+            isSaving={setSyncConfigMutation.isPending}
+          />
+        </div>
+      </div>
+
       {/* App Info */}
       <div className="mt-8">
         <h3 className="mb-3 text-[12px] font-medium uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
@@ -299,6 +440,229 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── WebDAV 同步区块 ──────────────────────────────────────────────────────────
+
+function WebDavSyncSection({
+  config,
+  status,
+  onSaveConfig,
+  onTestConnection,
+  onSyncNow,
+  isSyncing,
+  isTesting,
+  isSaving,
+}: {
+  config?: SyncConfig;
+  status?: import("@skills-pp/shared").SyncStatus;
+  onSaveConfig: (config: SyncConfig) => void;
+  onTestConnection: (config: SyncConfig) => void;
+  onSyncNow: () => void;
+  isSyncing: boolean;
+  isTesting: boolean;
+  isSaving: boolean;
+}) {
+  const cfg = config ?? DEFAULT_SYNC_CONFIG;
+  const [form, setForm] = useState<SyncConfig>(cfg);
+  const [formDirty, setFormDirty] = useState(false);
+
+  // 当后端配置加载完成后，同步到本地 form
+  if (config && !formDirty) {
+    if (JSON.stringify(form) !== JSON.stringify(config)) {
+      setForm(config);
+    }
+  }
+
+  const updateField = <K extends keyof SyncConfig>(key: K, value: SyncConfig[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFormDirty(true);
+  };
+
+  const handleSave = () => {
+    onSaveConfig(form);
+    setFormDirty(false);
+  };
+
+  const handleTest = () => {
+    onTestConnection(form);
+  };
+
+  const handleSyncNow = () => {
+    // 如果配置有变更，先保存再同步
+    if (formDirty) {
+      onSaveConfig(form);
+      setFormDirty(false);
+    }
+    onSyncNow();
+  };
+
+  const formatSyncTime = (ts: string | null) => {
+    if (!ts) return "从未同步";
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString("zh-CN", {
+        month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+    } catch {
+      return ts;
+    }
+  };
+
+  const syncResultIcon = (result: string | null) => {
+    if (!result) return <CloudOff className="h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />;
+    if (result === "success") return <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)]" />;
+    if (result === "conflict") return <AlertCircle className="h-3.5 w-3.5 text-[var(--color-warning)]" />;
+    return <AlertCircle className="h-3.5 w-3.5 text-[var(--color-danger)]" />;
+  };
+
+  return (
+    <div className="px-5 py-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Cloud className="h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />
+        <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">WebDAV 云同步</span>
+      </div>
+
+      {/* 配置表单 */}
+      <div className="space-y-3">
+        <FormField label="WebDAV URL">
+          <input
+            type="text"
+            value={form.webdavUrl}
+            onChange={(e) => updateField("webdavUrl", e.target.value)}
+            placeholder="https://dav.example.com"
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[13px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-subtle)]"
+          />
+        </FormField>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="用户名">
+            <input
+              type="text"
+              value={form.webdavUsername}
+              onChange={(e) => updateField("webdavUsername", e.target.value)}
+              placeholder="username"
+              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[13px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-subtle)]"
+            />
+          </FormField>
+          <FormField label="密码">
+            <input
+              type="password"
+              value={form.webdavPassword}
+              onChange={(e) => updateField("webdavPassword", e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[13px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-subtle)]"
+            />
+          </FormField>
+        </div>
+
+        <FormField label="远端路径">
+          <input
+            type="text"
+            value={form.webdavRemotePath}
+            onChange={(e) => updateField("webdavRemotePath", e.target.value)}
+            placeholder="/skillspp"
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[13px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-subtle)]"
+          />
+        </FormField>
+
+        {/* 操作按钮 */}
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || !formDirty}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+          >
+            {isSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+            保存配置
+          </button>
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={isTesting || !form.webdavUrl}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+          >
+            {isTesting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+            测试连接
+          </button>
+          <button
+            type="button"
+            onClick={handleSyncNow}
+            disabled={isSyncing || !form.webdavUrl}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-accent-subtle)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-text)] transition-colors hover:opacity-90 disabled:opacity-50"
+          >
+            {isSyncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5" />}
+            立即同步
+          </button>
+        </div>
+
+        {/* 同步状态 */}
+        <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-border-subtle)]">
+          {syncResultIcon(status?.lastSyncResult ?? null)}
+          <span className="text-[12px] text-[var(--color-text-tertiary)]">
+            上次同步：{formatSyncTime(status?.lastSyncAt ?? null)}
+          </span>
+          {status?.lastSyncDevice && (
+            <span className="text-[11px] text-[var(--color-text-tertiary)]">
+              · {status.lastSyncDevice}
+            </span>
+          )}
+        </div>
+
+        {/* 自动同步 */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => updateField("autoSync", !form.autoSync)}
+            className={[
+              "w-12 h-6 rounded-full relative transition-colors shrink-0",
+              form.autoSync
+                ? "bg-[var(--color-accent-subtle)]"
+                : "bg-[var(--color-border-subtle)]",
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "absolute top-1 w-4 h-4 rounded-full transition-transform shadow-sm",
+                form.autoSync ? "left-7 translate-x-0" : "left-1",
+                form.autoSync
+                  ? "bg-[var(--color-accent-text)]"
+                  : "bg-[var(--color-text-tertiary)]",
+              ].join(" ")}
+            />
+          </button>
+          <span className="text-[12px] text-[var(--color-text-secondary)]">启动时自动同步</span>
+          {form.autoSync && (
+            <div className="flex items-center gap-1.5 ml-auto">
+              <span className="text-[12px] text-[var(--color-text-tertiary)]">每</span>
+              <input
+                type="number"
+                min={5}
+                max={1440}
+                value={form.autoSyncInterval}
+                onChange={(e) => updateField("autoSyncInterval", parseInt(e.target.value) || 30)}
+                className="w-16 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-surface-raised)] px-2 py-1 text-[12px] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-subtle)]"
+              />
+              <span className="text-[12px] text-[var(--color-text-tertiary)]">分钟</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[11px] font-medium text-[var(--color-text-tertiary)] mb-1">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
