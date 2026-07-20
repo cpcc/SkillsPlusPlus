@@ -26,6 +26,10 @@ skills++ 是个桌面应用，帮你干这些事。它从 skills.sh、LobeHub、
 | :--------: | :--------: | :--: |
 | ![安装 Skill](screenshots/install.png) | ![Skill 详情](screenshots/skill-detail.png) | ![搜索](screenshots/search.png) |
 
+| 跨设备同步 |
+| :--------: |
+| ![跨设备同步](screenshots/sync.png) |
+
 ## 能干什么
 
 ### Skill 管理
